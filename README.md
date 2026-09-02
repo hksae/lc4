@@ -17,18 +17,20 @@ Requires Zig 0.17.
 
 ```sh
 zig build -Doptimize=ReleaseFast
-# binary at zig-out/bin/linescounter4 (or linescounter4.exe on Windows)
+# binary at zig-out/bin/lc4 (or lc4.exe on Windows)
 ```
+
+The executable is named `lc4` (short for linescounter4). The project name stays `linescounter4`.
 
 ## Usage
 
 ```sh
-linescounter4                 # scan cwd, recursive, respect .gitignore
-linescounter4 -a              # ignore .gitignore, scan everything
-linescounter4 -v              # per-file breakdown
-linescounter4 -b              # include binary files
-linescounter4 --json          # JSON output
-linescounter4 -e .zig,.rs     # only these extensions
+lc4                     # scan cwd, recursive, respect .gitignore
+lc4 -a                  # ignore .gitignore, scan everything
+lc4 -v                  # per-file breakdown
+lc4 -b                  # include binary files
+lc4 --json              # JSON output
+lc4 -e .zig,.rs         # only these extensions
 ```
 
 ## Options

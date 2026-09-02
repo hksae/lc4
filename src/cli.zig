@@ -57,9 +57,9 @@ fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
     var aw = std.Io.Writer.Allocating.init(allocator);
     const w = &aw.writer;
     try w.print(
-        \\linescounter4 - fast line counter
+        \\lc4 - fast line counter (linescounter4)
         \\
-        \\Usage: linescounter4 [options]
+        \\Usage: lc4 [options]
         \\
         \\Options:
         \\  -a, --all            Ignore .gitignore, scan all files

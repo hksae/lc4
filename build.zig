@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "linescounter4",
+        .name = "lc4",
         .root_module = module,
     });
 
