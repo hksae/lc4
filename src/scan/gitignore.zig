@@ -51,11 +51,31 @@ pub fn isIgnored(path: []const u8, patterns: []const Pattern) bool {
 }
 
 fn matchPattern(path: []const u8, pat: Pattern) bool {
+    var text = pat.text;
+    var dir_only = false;
+    if (text.len > 0 and text[text.len - 1] == '/') {
+        dir_only = true;
+        text = text[0 .. text.len - 1];
+    }
+
+    if (dir_only) {
+        return pathHasDir(path, text);
+    }
+
     if (pat.anchored) {
-        return globMatch(path, pat.text);
+        return globMatch(path, text);
     }
     const base = std.fs.path.basename(path);
-    return globMatch(base, pat.text);
+    return globMatch(base, text);
+}
+
+fn pathHasDir(path: []const u8, dir: []const u8) bool {
+    if (dir.len == 0) return false;
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |seg| {
+        if (std.mem.eql(u8, seg, dir)) return true;
+    }
+    return false;
 }
 
 fn globMatch(text: []const u8, pattern: []const u8) bool {
@@ -100,4 +120,30 @@ fn globMatch(text: []const u8, pattern: []const u8) bool {
     }
 
     return false;
+}
+
+test "gitignore respects negation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const content =
+        "*.log\n" ++
+        "build/\n" ++
+        "!important.log\n";
+    const patterns = try parse(a, content);
+
+    try std.testing.expect(isIgnored("app.log", patterns.items));
+    try std.testing.expect(isIgnored("build/out.txt", patterns.items));
+    try std.testing.expect(!isIgnored("important.log", patterns.items));
+}
+
+test "gitignore empty and comments" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const patterns = try parse(a, "\n# only a comment\n\n");
+    try std.testing.expectEqual(@as(usize, 0), patterns.items.len);
+    try std.testing.expect(!isIgnored("anything.txt", patterns.items));
 }

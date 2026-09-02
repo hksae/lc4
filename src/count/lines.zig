@@ -60,3 +60,57 @@ pub fn countLines(content: []const u8, language: *const lang.Language) LineCount
 
     return result;
 }
+
+const zig_test_lang = lang.Language{
+    .name = "Zig",
+    .line_comment = "//",
+    .block_open = "//!",
+    .block_close = null,
+    .color = "",
+};
+
+test "basic zig counting" {
+    const source =
+        "// header\n" ++
+        "const x = 1;\n" ++
+        "// comment\n" ++
+        "const y = 2;\n" ++
+        "\n" ++
+        "fn main() void {\n" ++
+        "    // inner\n" ++
+        "    _ = x + y;\n" ++
+        "}\n";
+    const r = countLines(source, &zig_test_lang);
+    try std.testing.expectEqual(@as(u64, 9), r.lines);
+    try std.testing.expectEqual(@as(u64, 1), r.blanks);
+    try std.testing.expectEqual(@as(u64, 3), r.comments);
+    try std.testing.expectEqual(@as(u64, 5), r.code);
+}
+
+test "block comment handling" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source =
+        "int a;\n" ++
+        "/* block\n" ++
+        "   continues\n" ++
+        "*/\n" ++
+        "int b;\n";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 5), r.lines);
+    try std.testing.expectEqual(@as(u64, 0), r.blanks);
+    try std.testing.expectEqual(@as(u64, 3), r.comments);
+    try std.testing.expectEqual(@as(u64, 2), r.code);
+}
+
+test "no trailing newline" {
+    const source = "a\nb\nc";
+    const r = countLines(source, &zig_test_lang);
+    try std.testing.expectEqual(@as(u64, 3), r.lines);
+    try std.testing.expectEqual(@as(u64, 3), r.code);
+}

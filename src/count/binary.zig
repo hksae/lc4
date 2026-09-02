@@ -6,3 +6,23 @@ pub fn isBinary(content: []const u8) bool {
     }
     return false;
 }
+
+test "empty is not binary" {
+    const std = @import("std");
+    try std.testing.expect(!isBinary(""));
+}
+
+test "ascii text is not binary" {
+    const std = @import("std");
+    try std.testing.expect(!isBinary("hello world\nline two\n"));
+}
+
+test "null byte is binary" {
+    const std = @import("std");
+    try std.testing.expect(isBinary("abc\x00def"));
+}
+
+test "other control bytes are not detected as binary" {
+    const std = @import("std");
+    try std.testing.expect(!isBinary("a\x01b\x02c"));
+}
