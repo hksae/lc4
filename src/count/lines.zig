@@ -1,3 +1,4 @@
+const std = @import("std");
 const lang = @import("../lang/mod.zig");
 
 pub const LineCount = struct {
@@ -13,17 +14,17 @@ pub fn countLines(content: []const u8, language: *const lang.Language) LineCount
     var remaining = content;
 
     while (remaining.len > 0) {
-        const nl = std.mem.indexOfScalar(u8, remaining, '\n');
+        const nl = std.mem.findScalar(u8, remaining, '\n');
         const line = if (nl) |pos| remaining[0..pos] else remaining;
         remaining = if (nl) |pos| remaining[pos + 1 ..] else &[0]u8{};
 
         result.lines += 1;
-        const trimmed = std.mem.trimLeft(u8, line, " \t\r");
+        const trimmed = std.mem.trimStart(u8, line, " \t\r");
 
         if (in_block) {
             result.comments += 1;
             if (language.block_close) |bc| {
-                if (std.mem.indexOf(u8, trimmed, bc) != null) {
+                if (std.mem.find(u8, trimmed, bc) != null) {
                     in_block = false;
                 }
             }
@@ -39,7 +40,7 @@ pub fn countLines(content: []const u8, language: *const lang.Language) LineCount
             if (std.mem.startsWith(u8, trimmed, bo)) {
                 result.comments += 1;
                 if (language.block_close) |bc| {
-                    if (std.mem.indexOf(u8, trimmed[bo.len..], bc) == null) {
+                    if (std.mem.find(u8, trimmed[bo.len..], bc) == null) {
                         in_block = true;
                     }
                 }

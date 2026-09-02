@@ -7,12 +7,12 @@ pub const Pattern = struct {
 };
 
 pub fn parse(allocator: std.mem.Allocator, content: []const u8) !std.ArrayList(Pattern) {
-    var patterns = std.ArrayList(Pattern).init(allocator);
-    errdefer patterns.deinit();
+    var patterns: std.ArrayList(Pattern) = .empty;
+    errdefer patterns.deinit(allocator);
 
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, " \t\r");
+        const line = std.mem.trimEnd(u8, raw_line, " \t\r");
         if (line.len == 0 or line[0] == '#') continue;
 
         var pos: usize = 0;
@@ -23,14 +23,14 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !std.ArrayList(P
         }
 
         const pattern_text = line[pos..];
-        const anchored = pattern_text.len > 0 and (pattern_text[0] == '/' or std.mem.indexOfScalar(u8, pattern_text, '/') != null);
+        const anchored = pattern_text.len > 0 and (pattern_text[0] == '/' or std.mem.findScalar(u8, pattern_text, '/') != null);
 
         const clean = if (anchored and pattern_text.len > 0 and pattern_text[0] == '/')
             pattern_text[1..]
         else
             pattern_text;
 
-        try patterns.append(.{
+        try patterns.append(allocator, .{
             .text = try allocator.dupe(u8, clean),
             .negated = negated,
             .anchored = anchored,

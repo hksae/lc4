@@ -1,5 +1,6 @@
 .{
-    .name = .@"linecounter4",
+    .name = .linecounter4,
+    .fingerprint = 0x6c45a0b8f22548c4,
     .version = "0.1.0",
     .paths = .{
         "build.zig",

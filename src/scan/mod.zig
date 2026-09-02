@@ -10,19 +10,21 @@ pub const FileEntry = struct {
 
 const skip_dirs = [_][]const u8{ ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode" };
 
-pub fn collectFiles(allocator: std.mem.Allocator, config: Config) ![]FileEntry {
-    var root = std.fs.cwd();
+pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![]FileEntry {
+    const cwd = std.Io.Dir.cwd();
+    var root = try cwd.openDir(io, ".", .{ .iterate = true });
+    defer root.close(io);
 
-    var gitignore_patterns: ?std.ArrayList(gitignore.Pattern) = null;
+    var gitignore_patterns: ?std.ArrayList(gitignore.Pattern) = .empty;
     defer {
         if (gitignore_patterns) |*p| {
             for (p.items) |pat| allocator.free(pat.text);
-            p.deinit();
+            p.deinit(allocator);
         }
     }
 
     if (config.respect_gitignore) {
-        const content = root.readFileAlloc(allocator, ".gitignore", 10 * 1024 * 1024) catch null;
+        const content = root.readFileAlloc(io, ".gitignore", allocator, .limited(10 * 1024 * 1024)) catch null;
         if (content) |c| {
             defer allocator.free(c);
             gitignore_patterns = try gitignore.parse(allocator, c);
@@ -32,17 +34,17 @@ pub fn collectFiles(allocator: std.mem.Allocator, config: Config) ![]FileEntry {
     var walker = try root.walk(allocator);
     defer walker.deinit();
 
-    var entries = std.ArrayList(FileEntry).init(allocator);
+    var entries: std.ArrayList(FileEntry) = .empty;
     errdefer {
         for (entries.items) |e| allocator.free(e.path);
-        entries.deinit();
+        entries.deinit(allocator);
     }
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
             for (skip_dirs) |sd| {
                 if (std.mem.eql(u8, entry.basename, sd)) {
-                    walker.leave();
+                    walker.leave(io);
                     break;
                 }
             }
@@ -78,8 +80,8 @@ pub fn collectFiles(allocator: std.mem.Allocator, config: Config) ![]FileEntry {
         }
 
         const language = lang.detect(path_copy);
-        try entries.append(.{ .path = path_copy, .lang_ptr = language });
+        try entries.append(allocator, .{ .path = path_copy, .lang_ptr = language });
     }
 
-    return try entries.toOwnedSlice();
+    return try entries.toOwnedSlice(allocator);
 }

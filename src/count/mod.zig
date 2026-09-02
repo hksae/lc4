@@ -16,7 +16,7 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
-pub fn countAll(allocator: std.mem.Allocator, entries: []const FileEntry) ![]FileResult {
+pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
     for (entries, 0..) |entry, i| {
         results[i] = .{
@@ -25,22 +25,18 @@ pub fn countAll(allocator: std.mem.Allocator, entries: []const FileEntry) ![]Fil
         };
     }
 
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(.{ .allocator = allocator });
-    defer pool.deinit();
-
-    var wg: std.Thread.WaitGroup = .{};
+    var group: std.Io.Group = .init;
     for (entries, 0..) |entry, i| {
-        pool.spawnWg(&wg, countSingle, .{ entry, &results[i] });
+        try group.concurrent(io, countSingle, .{ io, entry, &results[i] });
     }
-    pool.waitAndWork(&wg);
+    try group.await(io);
 
     return results;
 }
 
-fn countSingle(entry: FileEntry, result: *FileResult) void {
-    const content = readFile(entry.path) orelse return;
-    defer std.heap.page_allocator.free(content);
+fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult) std.Io.Cancelable!void {
+    const content = readFile(io, entry.path) orelse return;
+    defer std.heap.smp_allocator.free(content);
 
     result.is_binary = binary.isBinary(content);
     if (result.is_binary) return;
@@ -48,33 +44,37 @@ fn countSingle(entry: FileEntry, result: *FileResult) void {
     result.line_count = lines.countLines(content, entry.lang_ptr);
 }
 
-fn readFile(path: []const u8) ?[]u8 {
-    const file = std.fs.cwd().openFile(path, .{}) catch return null;
-    defer file.close();
-    const stat = file.stat() catch return null;
-    const size: usize = @intCast(stat.size);
-    if (size == 0) return &[_]u8{};
+fn readFile(io: std.Io, path: []const u8) ?[]u8 {
+    const cwd = std.Io.Dir.cwd();
+    const file = cwd.openFile(io, path, .{}) catch return null;
+    defer file.close(io);
+    const stats = file.stat(io) catch return null;
+    const size: usize = @intCast(stats.size);
+    if (size == 0) {
+        return std.heap.smp_allocator.dupe(u8, "") catch null;
+    }
     if (size > 100 * 1024 * 1024) return null;
-    const buf = std.heap.page_allocator.alloc(u8, size) catch return null;
+    const buf = std.heap.smp_allocator.alloc(u8, size) catch return null;
     var total: usize = 0;
+    var chunk = buf;
     while (total < size) {
-        const n = file.read(buf[total..size]) catch {
-            std.heap.page_allocator.free(buf);
+        const n = file.readPositional(io, &.{chunk}, total) catch {
+            std.heap.smp_allocator.free(buf);
             return null;
         };
         if (n == 0) {
-            std.heap.page_allocator.free(buf);
+            std.heap.smp_allocator.free(buf);
             return null;
         }
         total += n;
+        chunk = buf[total..];
     }
     return buf;
 }
 
 pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult) !AggregateResult {
-    var map = std.StringHashMap(lang.LanguageStat).init(allocator);
+    var map: std.StringHashMap(lang.LanguageStat) = .init(allocator);
     defer map.deinit();
-
     var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
 
     for (results) |r| {
