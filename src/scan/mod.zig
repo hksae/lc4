@@ -47,10 +47,7 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
     }
 
     var root_entries: std.ArrayList(FileEntry) = .empty;
-    errdefer {
-        for (root_entries.items) |e| allocator.free(e.path);
-        root_entries.deinit(allocator);
-    }
+    defer root_entries.deinit(allocator);
 
     var root_walker = try root.walk(allocator);
     defer root_walker.deinit();
@@ -132,6 +129,7 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
     for (root_entries.items) |e| {
         try ctx.entries.append(allocator, e);
     }
+    root_entries.clearRetainingCapacity();
 
     return try ctx.entries.toOwnedSlice(allocator);
 }
