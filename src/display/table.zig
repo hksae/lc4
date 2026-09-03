@@ -15,53 +15,53 @@ pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, to
     const col_w = [_]usize{ 6, 8, 8, 10, 8 };
 
     try w.writeAll("\n");
+    try w.writeAll("│ ");
     try writePadded(w, "Language", name_width);
-    try w.writeAll("  ");
-    try writePadded(w, "Files", col_w[0]);
-    try w.writeAll("  ");
-    try writePadded(w, "Lines", col_w[1]);
-    try w.writeAll("  ");
-    try writePadded(w, "Blanks", col_w[2]);
-    try w.writeAll("  ");
-    try writePadded(w, "Comments", col_w[3]);
-    try w.writeAll("  ");
-    try writePadded(w, "Code", col_w[4]);
+    try w.writeAll(" │");
+    try w.writeAll(" Files │");
+    try w.writeAll(" Lines  │");
+    try w.writeAll(" Blanks  │");
+    try w.writeAll(" Comments │");
+    try w.writeAll(" Code  │");
     try w.writeAll("\n");
 
-    try printSep(w, name_width, col_w);
+    try printSep(w, name_width, col_w, "├", "┼", "┤");
 
     for (stats) |s| {
         try printRow(w, s.color, s.name, name_width, .{ s.files, s.lines, s.blanks, s.comments, s.code }, col_w);
     }
 
-    try printSep(w, name_width, col_w);
+    try printSep(w, name_width, col_w, "├", "┼", "┤");
     try printRow(w, colors.bold, total.name, name_width, .{ total.files, total.lines, total.blanks, total.comments, total.code }, col_w);
+    try printSep(w, name_width, col_w, "└", "┴", "┘");
     try w.writeAll("\n");
 
     return aw.toOwnedSlice();
 }
 
-fn printSep(w: *std.Io.Writer, name_width: usize, col_w: [5]usize) !void {
-    try w.writeAll(" ");
+fn printSep(w: *std.Io.Writer, name_width: usize, col_w: [5]usize, left: []const u8, mid: []const u8, right: []const u8) !void {
+    try w.writeAll(left);
     var i: usize = 0;
     while (i < name_width + 2) : (i += 1) try w.writeAll("─");
-    try w.writeAll("┬");
     inline for (col_w) |cw| {
+        try w.writeAll(mid);
         i = 0;
         while (i < cw + 2) : (i += 1) try w.writeAll("─");
-        try w.writeAll("┼");
     }
+    try w.writeAll(right);
     try w.writeAll("\n");
 }
 
 fn printRow(w: *std.Io.Writer, color: []const u8, name: []const u8, name_width: usize, vals: [5]u64, col_w: [5]usize) !void {
-    try w.writeAll(" ");
+    try w.writeAll("│ ");
     try w.writeAll(color);
     try writePadded(w, name, name_width);
     try w.writeAll(colors.reset);
+    try w.writeAll(" │");
     inline for (0..5) |i| {
-        try w.writeAll("  ");
+        try w.writeAll(" ");
         try printNumRight(w, vals[i], col_w[i]);
+        try w.writeAll(" │");
     }
     try w.writeAll("\n");
 }
