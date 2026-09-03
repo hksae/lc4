@@ -1,4 +1,4 @@
-# linescounter4
+# lc4
 
 Blazing-fast command-line line counter for your project. Written in Zig.
 
@@ -20,7 +20,7 @@ zig build -Doptimize=ReleaseFast
 # binary at zig-out/bin/lc4 (or lc4.exe on Windows)
 ```
 
-The executable is named `lc4` (short for linescounter4). The project name stays `linescounter4`.
+The executable is named `lc4`.
 
 ## Usage
 

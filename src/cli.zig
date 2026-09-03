@@ -57,7 +57,7 @@ fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
     var aw = std.Io.Writer.Allocating.init(allocator);
     const w = &aw.writer;
     try w.print(
-        \\lc4 - fast line counter (linescounter4)
+        \\lc4 - fast line counter
         \\
         \\Usage: lc4 [options]
         \\

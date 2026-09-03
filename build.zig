@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(b.getInstallStep());
     run_cmd.addPassthruArgs();
 
-    b.step("run", "Run linescounter4").dependOn(&run_cmd.step);
+    b.step("run", "Run lc4").dependOn(&run_cmd.step);
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
