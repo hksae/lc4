@@ -63,7 +63,8 @@ fn matchPattern(path: []const u8, pat: Pattern) bool {
     }
 
     if (pat.anchored) {
-        return globMatch(path, text);
+        if (pathStartsWith(path, text)) return true;
+        return false;
     }
     const base = std.fs.path.basename(path);
     return globMatch(base, text);
@@ -83,6 +84,13 @@ fn pathHasDir(path: []const u8, dir: []const u8) bool {
         if (std.mem.eql(u8, seg, dir)) return true;
     }
     return false;
+}
+
+fn pathStartsWith(path: []const u8, prefix: []const u8) bool {
+    if (prefix.len == 0) return false;
+    if (path.len < prefix.len) return false;
+    if (!std.mem.eql(u8, path[0..prefix.len], prefix)) return false;
+    return path.len == prefix.len or path[prefix.len] == '/' or path[prefix.len] == '\\';
 }
 
 fn globMatch(text: []const u8, pattern: []const u8) bool {
