@@ -13,16 +13,21 @@ pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, to
     if (total.name.len > name_width) name_width = total.name.len;
 
     const col_w = [_]usize{ 6, 8, 8, 10, 8 };
+    const headers = [_][]const u8{ "Files", "Lines", "Blanks", "Comments", "Code" };
 
     try w.writeAll("\n");
+    try printSep(w, name_width, col_w, "┌", "┬", "┐");
+
     try w.writeAll("│ ");
+    try w.writeAll(colors.bold);
     try writePadded(w, "Language", name_width);
+    try w.writeAll(colors.reset);
     try w.writeAll(" │");
-    try w.writeAll(" Files │");
-    try w.writeAll(" Lines  │");
-    try w.writeAll(" Blanks  │");
-    try w.writeAll(" Comments │");
-    try w.writeAll(" Code  │");
+    inline for (headers, col_w) |h, cw| {
+        try w.writeAll(" ");
+        try writePaddedRight(w, h, cw);
+        try w.writeAll(" │");
+    }
     try w.writeAll("\n");
 
     try printSep(w, name_width, col_w, "├", "┼", "┤");
@@ -82,4 +87,12 @@ fn writePadded(w: *std.Io.Writer, text: []const u8, width: usize) !void {
     while (i < width) : (i += 1) {
         try w.writeAll(" ");
     }
+}
+
+fn writePaddedRight(w: *std.Io.Writer, text: []const u8, width: usize) !void {
+    var i: usize = text.len;
+    while (i < width) : (i += 1) {
+        try w.writeAll(" ");
+    }
+    try w.writeAll(text);
 }
