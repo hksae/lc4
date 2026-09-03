@@ -15,12 +15,18 @@ pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, to
     const col_w = [_]usize{ 6, 8, 8, 10, 8 };
 
     try w.writeAll("\n");
-    try w.print(" {s}{s}{s}", .{ colors.bold, pad("Language", name_width), colors.reset });
-    try w.print("  {s}{s}{s}", .{ colors.dim, pad("Files", col_w[0]), colors.reset });
-    try w.print("  {s}{s}{s}", .{ colors.dim, pad("Lines", col_w[1]), colors.reset });
-    try w.print("  {s}{s}{s}", .{ colors.dim, pad("Blanks", col_w[2]), colors.reset });
-    try w.print("  {s}{s}{s}", .{ colors.dim, pad("Comments", col_w[3]), colors.reset });
-    try w.print("  {s}{s}{s}\n", .{ colors.dim, pad("Code", col_w[4]), colors.reset });
+    try writePadded(w, "Language", name_width);
+    try w.writeAll("  ");
+    try writePadded(w, "Files", col_w[0]);
+    try w.writeAll("  ");
+    try writePadded(w, "Lines", col_w[1]);
+    try w.writeAll("  ");
+    try writePadded(w, "Blanks", col_w[2]);
+    try w.writeAll("  ");
+    try writePadded(w, "Comments", col_w[3]);
+    try w.writeAll("  ");
+    try writePadded(w, "Code", col_w[4]);
+    try w.writeAll("\n");
 
     try printSep(w, name_width, col_w);
 
@@ -49,7 +55,10 @@ fn printSep(w: *std.Io.Writer, name_width: usize, col_w: [5]usize) !void {
 }
 
 fn printRow(w: *std.Io.Writer, color: []const u8, name: []const u8, name_width: usize, vals: [5]u64, col_w: [5]usize) !void {
-    try w.print(" {s}{s}{s}", .{ color, pad(name, name_width), colors.reset });
+    try w.writeAll(" ");
+    try w.writeAll(color);
+    try writePadded(w, name, name_width);
+    try w.writeAll(colors.reset);
     inline for (0..5) |i| {
         try w.writeAll("  ");
         try printNumRight(w, vals[i], col_w[i]);
@@ -67,7 +76,10 @@ fn printNumRight(w: *std.Io.Writer, num: u64, width: usize) !void {
     try w.writeAll(str);
 }
 
-fn pad(text: []const u8, width: usize) []const u8 {
-    _ = width;
-    return text;
+fn writePadded(w: *std.Io.Writer, text: []const u8, width: usize) !void {
+    try w.writeAll(text);
+    var i: usize = text.len;
+    while (i < width) : (i += 1) {
+        try w.writeAll(" ");
+    }
 }

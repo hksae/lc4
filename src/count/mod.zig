@@ -16,6 +16,8 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
+const BATCH_SIZE = 64;
+
 pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
     for (entries, 0..) |entry, i| {
@@ -25,11 +27,16 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
         };
     }
 
-    var group: std.Io.Group = .init;
-    for (entries, 0..) |entry, i| {
-        try group.concurrent(io, countSingle, .{ io, entry, &results[i] });
+    var offset: usize = 0;
+    while (offset < entries.len) {
+        const end = @min(offset + BATCH_SIZE, entries.len);
+        var group: std.Io.Group = .init;
+        for (entries[offset..end], 0..) |entry, i| {
+            try group.concurrent(io, countSingle, .{ io, entry, &results[offset + i] });
+        }
+        try group.await(io);
+        offset = end;
     }
-    try group.await(io);
 
     return results;
 }
@@ -56,9 +63,9 @@ fn readFile(io: std.Io, path: []const u8) ?[]u8 {
     if (size > 100 * 1024 * 1024) return null;
     const buf = std.heap.smp_allocator.alloc(u8, size) catch return null;
     var total: usize = 0;
-    var chunk = buf;
     while (total < size) {
-        const n = file.readPositional(io, &.{chunk}, total) catch {
+        const remaining = buf[total..];
+        const n = file.readPositional(io, &.{remaining}, total) catch {
             std.heap.smp_allocator.free(buf);
             return null;
         };
@@ -67,7 +74,6 @@ fn readFile(io: std.Io, path: []const u8) ?[]u8 {
             return null;
         }
         total += n;
-        chunk = buf[total..];
     }
     return buf;
 }

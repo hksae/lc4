@@ -71,8 +71,15 @@ fn matchPattern(path: []const u8, pat: Pattern) bool {
 
 fn pathHasDir(path: []const u8, dir: []const u8) bool {
     if (dir.len == 0) return false;
-    var it = std.mem.splitScalar(u8, path, '/');
-    while (it.next()) |seg| {
+    var i: usize = 0;
+    while (i < path.len) {
+        if (path[i] == '/' or path[i] == '\\') {
+            i += 1;
+            continue;
+        }
+        const start = i;
+        while (i < path.len and path[i] != '/' and path[i] != '\\') : (i += 1) {}
+        const seg = path[start..i];
         if (std.mem.eql(u8, seg, dir)) return true;
     }
     return false;
