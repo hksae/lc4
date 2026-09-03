@@ -16,9 +16,9 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
-const BATCH_SIZE = 64;
+const BATCH_SIZE = 512;
 
-pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry) ![]FileResult {
+pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, extensions_only: bool) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
     for (entries, 0..) |entry, i| {
         results[i] = .{
@@ -32,7 +32,7 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
         const end = @min(offset + BATCH_SIZE, entries.len);
         var group: std.Io.Group = .init;
         for (entries[offset..end], 0..) |entry, i| {
-            try group.concurrent(io, countSingle, .{ io, entry, &results[offset + i] });
+            try group.concurrent(io, countSingle, .{ io, entry, &results[offset + i], extensions_only });
         }
         try group.await(io);
         offset = end;
@@ -41,12 +41,14 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
     return results;
 }
 
-fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult) std.Io.Cancelable!void {
+fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_only: bool) std.Io.Cancelable!void {
     const content = readFile(io, entry.path) orelse return;
     defer std.heap.smp_allocator.free(content);
 
-    result.is_binary = binary.isBinary(content);
-    if (result.is_binary) return;
+    if (!extensions_only) {
+        result.is_binary = binary.isBinary(content);
+        if (result.is_binary) return;
+    }
 
     result.line_count = lines.countLines(content, entry.lang_ptr);
 }

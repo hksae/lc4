@@ -8,7 +8,7 @@ pub const FileEntry = struct {
     lang_ptr: *const lang.Language,
 };
 
-const skip_dirs = [_][]const u8{ ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode" };
+const skip_dirs = [_][]const u8{ ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode", ".zig-cache", ".zig-out", "zig-out", "target" };
 
 pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![]FileEntry {
     const cwd = std.Io.Dir.cwd();

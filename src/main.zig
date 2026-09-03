@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    const results = try count.countAll(gpa, io, entries);
+    const results = try count.countAll(gpa, io, entries, config.extensions != null);
     defer gpa.free(results);
 
     const agg = try count.aggregate(gpa, results);
