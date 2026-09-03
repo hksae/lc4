@@ -17,6 +17,7 @@ const ScanContext = struct {
     respect_gitignore: bool,
     gitignore_patterns: ?[]const gitignore.Pattern,
     extensions: ?[]const []const u8,
+    scan_all: bool,
 };
 
 pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![]FileEntry {
@@ -55,11 +56,13 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
     while (try root_walker.next(io)) |entry| {
         if (entry.kind == .directory) {
             var skip = false;
-            for (skip_dirs) |sd| {
-                if (std.mem.eql(u8, entry.basename, sd)) {
-                    root_walker.leave(io);
-                    skip = true;
-                    break;
+            if (config.respect_gitignore) {
+                for (skip_dirs) |sd| {
+                    if (std.mem.eql(u8, entry.basename, sd)) {
+                        root_walker.leave(io);
+                        skip = true;
+                        break;
+                    }
                 }
             }
             if (skip) continue;
@@ -117,6 +120,7 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
         .respect_gitignore = config.respect_gitignore,
         .gitignore_patterns = if (gitignore_patterns) |p| p.items else null,
         .extensions = config.extensions,
+        .scan_all = !config.respect_gitignore,
     };
 
     var group: std.Io.Group = .init;
@@ -148,10 +152,12 @@ fn walkSubdir(
 
     while (walker.next(io) catch null) |entry| {
         if (entry.kind == .directory) {
-            for (skip_dirs) |sd| {
-                if (std.mem.eql(u8, entry.basename, sd)) {
-                    walker.leave(io);
-                    break;
+            if (!ctx.scan_all) {
+                for (skip_dirs) |sd| {
+                    if (std.mem.eql(u8, entry.basename, sd)) {
+                        walker.leave(io);
+                        break;
+                    }
                 }
             }
             continue;
