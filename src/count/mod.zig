@@ -80,7 +80,7 @@ fn readFile(io: std.Io, path: []const u8) ?[]u8 {
     return buf;
 }
 
-pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult) !AggregateResult {
+pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8) !AggregateResult {
     var map: std.StringHashMap(lang.LanguageStat) = .init(allocator);
     defer map.deinit();
     var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
@@ -114,8 +114,11 @@ pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult) !Agg
         stats[i] = val.*;
     }
 
-    std.mem.sort(lang.LanguageStat, stats, {}, struct {
-        fn cmp(_: void, a: lang.LanguageStat, b: lang.LanguageStat) bool {
+    std.mem.sort(lang.LanguageStat, stats, sort_by, struct {
+        fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
+            if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
+            if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
+            if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
             return a.lines > b.lines;
         }
     }.cmp);

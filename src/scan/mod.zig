@@ -10,8 +10,7 @@ pub const FileEntry = struct {
 
 const skip_dirs = [_][]const u8{ ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode", ".zig-cache", ".zig-out", "zig-out", "target" };
 
-const ScanContext = struct {
-    rwlock: std.Io.RwLock = .init,
+const SubdirTask = struct {
     entries: std.ArrayList(FileEntry),
     allocator: std.mem.Allocator,
     respect_gitignore: bool,
@@ -22,7 +21,13 @@ const ScanContext = struct {
 
 pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![]FileEntry {
     const cwd = std.Io.Dir.cwd();
-    var root = try cwd.openDir(io, ".", .{ .iterate = true });
+    const root_path = config.root_path orelse ".";
+    var root = cwd.openDir(io, root_path, .{ .iterate = true }) catch |err| {
+        const msg = try std.fmt.allocPrint(allocator, "Cannot open '{s}': {}\n", .{ root_path, err });
+        defer allocator.free(msg);
+        try std.Io.File.stderr().writeStreamingAll(io, msg);
+        return error.CannotOpenDir;
+    };
     defer root.close(io);
 
     var gitignore_patterns: ?std.ArrayList(gitignore.Pattern) = .empty;
@@ -114,45 +119,77 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
         try root_entries.append(allocator, .{ .path = path_copy, .lang_ptr = language });
     }
 
-    var ctx = ScanContext{
-        .entries = .empty,
-        .allocator = allocator,
-        .respect_gitignore = config.respect_gitignore,
-        .gitignore_patterns = if (gitignore_patterns) |p| p.items else null,
-        .extensions = config.extensions,
-        .scan_all = !config.respect_gitignore,
-    };
+    const patterns_ptr: ?[]const gitignore.Pattern = if (gitignore_patterns) |p| p.items else null;
+
+    var tasks: std.ArrayList(SubdirTask) = .empty;
+    try tasks.ensureTotalCapacity(allocator, subdirs.items.len);
+    defer {
+        for (tasks.items) |*t| t.entries.deinit(allocator);
+        tasks.deinit(allocator);
+    }
 
     var group: std.Io.Group = .init;
 
     for (subdirs.items) |dir_path| {
-        try group.concurrent(io, walkSubdir, .{ io, &ctx, dir_path });
+        const idx = tasks.items.len;
+        tasks.appendAssumeCapacity(.{
+            .entries = .empty,
+            .allocator = allocator,
+            .respect_gitignore = config.respect_gitignore,
+            .gitignore_patterns = patterns_ptr,
+            .extensions = config.extensions,
+            .scan_all = !config.respect_gitignore,
+        });
+        try group.concurrent(io, walkSubdir, .{ io, &tasks.items[idx], dir_path });
     }
     try group.await(io);
 
+    var result: std.ArrayList(FileEntry) = .empty;
+    errdefer {
+        for (result.items) |e| allocator.free(e.path);
+        result.deinit(allocator);
+    }
+
     for (root_entries.items) |e| {
-        try ctx.entries.append(allocator, e);
+        try result.append(allocator, e);
     }
     root_entries.clearRetainingCapacity();
 
-    return try ctx.entries.toOwnedSlice(allocator);
+    for (tasks.items) |*t| {
+        for (t.entries.items) |e| {
+            try result.append(allocator, e);
+        }
+        t.entries.clearRetainingCapacity();
+    }
+
+    if (config.root_path) |rp| {
+        if (!std.mem.eql(u8, rp, ".")) {
+            for (result.items) |*e| {
+                const new_path = try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ rp, std.fs.path.sep, e.path });
+                allocator.free(e.path);
+                e.path = new_path;
+            }
+        }
+    }
+
+    return try result.toOwnedSlice(allocator);
 }
 
 fn walkSubdir(
     io: std.Io,
-    ctx: *ScanContext,
+    task: *SubdirTask,
     dir_path: []const u8,
 ) std.Io.Cancelable!void {
     const cwd = std.Io.Dir.cwd();
     var dir = cwd.openDir(io, dir_path, .{ .iterate = true }) catch return;
     defer dir.close(io);
 
-    var walker = dir.walk(ctx.allocator) catch return;
+    var walker = dir.walk(task.allocator) catch return;
     defer walker.deinit();
 
     while (walker.next(io) catch null) |entry| {
         if (entry.kind == .directory) {
-            if (!ctx.scan_all) {
+            if (!task.scan_all) {
                 for (skip_dirs) |sd| {
                     if (std.mem.eql(u8, entry.basename, sd)) {
                         walker.leave(io);
@@ -165,18 +202,18 @@ fn walkSubdir(
 
         if (entry.kind != .file) continue;
 
-        const full_path = std.fs.path.join(ctx.allocator, &.{ dir_path, entry.path }) catch continue;
+        const full_path = std.fs.path.join(task.allocator, &.{ dir_path, entry.path }) catch continue;
 
-        if (ctx.respect_gitignore) {
-            if (ctx.gitignore_patterns) |patterns| {
+        if (task.respect_gitignore) {
+            if (task.gitignore_patterns) |patterns| {
                 if (gitignore.isIgnored(full_path, patterns)) {
-                    ctx.allocator.free(full_path);
+                    task.allocator.free(full_path);
                     continue;
                 }
             }
         }
 
-        if (ctx.extensions) |exts| {
+        if (task.extensions) |exts| {
             const ext = std.fs.path.extension(full_path);
             var found = false;
             for (exts) |e| {
@@ -186,17 +223,14 @@ fn walkSubdir(
                 }
             }
             if (!found) {
-                ctx.allocator.free(full_path);
+                task.allocator.free(full_path);
                 continue;
             }
         }
 
         const language = lang.detect(full_path);
-
-        ctx.rwlock.lockUncancelable(io);
-        defer ctx.rwlock.unlock(io);
-        ctx.entries.append(ctx.allocator, .{ .path = full_path, .lang_ptr = language }) catch {
-            ctx.allocator.free(full_path);
+        task.entries.append(task.allocator, .{ .path = full_path, .lang_ptr = language }) catch {
+            task.allocator.free(full_path);
         };
     }
 }

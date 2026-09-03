@@ -13,10 +13,19 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
             defer allocator.free(buf);
             try std.Io.File.stdout().writeStreamingAll(io, buf);
             std.process.exit(0);
+        } else if (std.mem.eql(u8, arg, "-V") or std.mem.eql(u8, arg, "--version")) {
+            try std.Io.File.stdout().writeStreamingAll(io, "lc4 0.1.0\n");
+            std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "-a") or std.mem.eql(u8, arg, "--all")) {
             config.respect_gitignore = false;
         } else if (std.mem.eql(u8, arg, "-b") or std.mem.eql(u8, arg, "--binaries")) {
             config.include_binaries = true;
+        } else if (std.mem.eql(u8, arg, "-n") or std.mem.eql(u8, arg, "--no-color")) {
+            config.no_color = true;
+        } else if (std.mem.eql(u8, arg, "--sort")) {
+            if (args.next()) |s| {
+                config.sort_by = s;
+            }
         } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--verbose")) {
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
@@ -39,6 +48,8 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
                 }
                 config.extensions = try exts.toOwnedSlice(allocator);
             }
+        } else if (arg[0] != '-') {
+            config.root_path = try allocator.dupe(u8, arg);
         } else {
             const err_buf = try std.fmt.allocPrint(allocator, "Unknown option: {s}\n", .{arg});
             defer allocator.free(err_buf);
@@ -59,14 +70,17 @@ fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
     try w.print(
         \\lc4 - fast line counter
         \\
-        \\Usage: lc4 [options]
+        \\Usage: lc4 [options] [path]
         \\
         \\Options:
         \\  -a, --all            Ignore .gitignore, scan all files
         \\  -b, --binaries       Include binary files in count
+        \\  -n, --no-color       Disable colored output
         \\  -v, --verbose        Show per-file breakdown
         \\      --json           Output as JSON
+        \\      --sort FIELD     Sort by: lines (default), files, code, name
         \\  -e, --ext .ext,...   Filter by extensions (comma-separated)
+        \\  -V, --version        Show version
         \\  -h, --help           Show this help
         \\
     , .{});

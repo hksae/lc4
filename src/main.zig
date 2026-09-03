@@ -15,6 +15,13 @@ pub fn main(init: std.process.Init) !void {
     terminal.setup();
 
     const config = try cli.parse(gpa, io, init.minimal.args);
+    defer {
+        if (config.root_path) |p| gpa.free(p);
+        if (config.extensions) |exts| {
+            for (exts) |e| gpa.free(e);
+            gpa.free(exts);
+        }
+    }
 
     const entries = try scan.collectFiles(gpa, io, config);
     defer {
@@ -30,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     const results = try count.countAll(gpa, io, entries, config.extensions != null);
     defer gpa.free(results);
 
-    const agg = try count.aggregate(gpa, results);
+    const agg = try count.aggregate(gpa, results, config.sort_by);
     defer gpa.free(agg.stats);
 
     try display.show(gpa, io, results, agg, config);

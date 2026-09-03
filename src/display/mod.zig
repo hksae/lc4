@@ -13,11 +13,11 @@ pub fn show(allocator: std.mem.Allocator, io: std.Io, results: []const count.Fil
         defer allocator.free(buf);
         try stdout.writeStreamingAll(io, buf);
     } else {
-        const buf = try table.render(allocator, agg.stats, agg.total);
+        const buf = try table.render(allocator, agg.stats, agg.total, config.no_color);
         defer allocator.free(buf);
         try stdout.writeStreamingAll(io, buf);
         if (config.verbose) {
-            const vb = try verbose.render(allocator, results, agg.stats);
+            const vb = try verbose.render(allocator, results, agg.stats, config.no_color);
             defer allocator.free(vb);
             try stdout.writeStreamingAll(io, vb);
         }

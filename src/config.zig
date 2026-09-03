@@ -3,5 +3,8 @@ pub const Config = struct {
     verbose: bool = false,
     include_binaries: bool = false,
     json_output: bool = false,
+    no_color: bool = false,
     extensions: ?[]const []const u8 = null,
+    root_path: ?[]const u8 = null,
+    sort_by: []const u8 = "lines",
 };

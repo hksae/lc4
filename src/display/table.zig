@@ -2,9 +2,12 @@ const std = @import("std");
 const lang = @import("../lang/mod.zig");
 const colors = @import("colors.zig");
 
-pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, total: lang.LanguageStat) ![]u8 {
+pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, total: lang.LanguageStat, no_color: bool) ![]u8 {
     var aw = std.Io.Writer.Allocating.init(allocator);
     const w = &aw.writer;
+
+    const bold = if (no_color) "" else colors.bold;
+    const reset = if (no_color) "" else colors.reset;
 
     var name_width: usize = 8;
     for (stats) |s| {
@@ -19,9 +22,9 @@ pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, to
     try printSep(w, name_width, col_w, "┌", "┬", "┐");
 
     try w.writeAll("│ ");
-    try w.writeAll(colors.bold);
+    try w.writeAll(bold);
     try writePadded(w, "Language", name_width);
-    try w.writeAll(colors.reset);
+    try w.writeAll(reset);
     try w.writeAll(" │");
     inline for (headers, col_w) |h, cw| {
         try w.writeAll(" ");
@@ -33,11 +36,12 @@ pub fn render(allocator: std.mem.Allocator, stats: []const lang.LanguageStat, to
     try printSep(w, name_width, col_w, "├", "┼", "┤");
 
     for (stats) |s| {
-        try printRow(w, s.color, s.name, name_width, .{ s.files, s.lines, s.blanks, s.comments, s.code }, col_w);
+        const c = if (no_color) "" else s.color;
+        try printRow(w, c, s.name, name_width, .{ s.files, s.lines, s.blanks, s.comments, s.code }, col_w);
     }
 
     try printSep(w, name_width, col_w, "├", "┼", "┤");
-    try printRow(w, colors.bold, total.name, name_width, .{ total.files, total.lines, total.blanks, total.comments, total.code }, col_w);
+    try printRow(w, bold, total.name, name_width, .{ total.files, total.lines, total.blanks, total.comments, total.code }, col_w);
     try printSep(w, name_width, col_w, "└", "┴", "┘");
     try w.writeAll("\n");
 
@@ -61,7 +65,7 @@ fn printRow(w: *std.Io.Writer, color: []const u8, name: []const u8, name_width: 
     try w.writeAll("│ ");
     try w.writeAll(color);
     try writePadded(w, name, name_width);
-    try w.writeAll(colors.reset);
+    if (color.len > 0) try w.writeAll(colors.reset);
     try w.writeAll(" │");
     inline for (0..5) |i| {
         try w.writeAll(" ");

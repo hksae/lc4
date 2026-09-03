@@ -3,12 +3,16 @@ const lang = @import("../lang/mod.zig");
 const count = @import("../count/mod.zig");
 const colors = @import("colors.zig");
 
-pub fn render(allocator: std.mem.Allocator, results: []const count.FileResult, stats: []const lang.LanguageStat) ![]u8 {
+pub fn render(allocator: std.mem.Allocator, results: []const count.FileResult, stats: []const lang.LanguageStat, no_color: bool) ![]u8 {
     var aw = std.Io.Writer.Allocating.init(allocator);
     const w = &aw.writer;
 
+    const dim = if (no_color) "" else colors.dim;
+    const reset = if (no_color) "" else colors.reset;
+
     for (stats) |s| {
-        try w.print("\n {s}{s}{s}\n", .{ s.color, s.name, colors.reset });
+        const c = if (no_color) "" else s.color;
+        try w.print("\n {s}{s}{s}\n", .{ c, s.name, reset });
 
         var max_path_len: usize = 0;
         for (results) |r| {
@@ -22,9 +26,9 @@ pub fn render(allocator: std.mem.Allocator, results: []const count.FileResult, s
             if (!std.mem.eql(u8, r.lang_ptr.name, s.name)) continue;
 
             try w.writeAll("   ");
-            try w.writeAll(colors.dim);
+            try w.writeAll(dim);
             try writePadded(w, r.path, max_path_len);
-            try w.writeAll(colors.reset);
+            try w.writeAll(reset);
 
             var buf: [16]u8 = undefined;
             const num_str = std.fmt.bufPrint(&buf, "{d}", .{r.line_count.lines}) catch continue;
@@ -34,7 +38,7 @@ pub fn render(allocator: std.mem.Allocator, results: []const count.FileResult, s
                 try w.writeAll(" ");
             }
             try w.writeAll(num_str);
-            try w.writeAll(colors.reset);
+            try w.writeAll(reset);
             try w.writeAll("\n");
         }
     }

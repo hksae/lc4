@@ -102,13 +102,22 @@ const table = [_]Entry{
     .{ .ext = ".nim", .lang = .{ .name = "Nim", .line_comment = "#", .color = "\x1b[38;5;214m" } },
     .{ .ext = ".v", .lang = .{ .name = "V", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;036m" } },
     .{ .ext = ".cr", .lang = .{ .name = "Crystal", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
-    .{ .ext = ".zig", .lang = .{ .name = "Zig", .line_comment = "//", .block_open = "//!", .block_close = null, .color = "\x1b[38;5;208m" } },
 };
 
-pub fn detect(filename: []const u8) *const Language {
-    const ext = std.fs.path.extension(filename);
+var map: std.StringHashMap(*const Language) = undefined;
+var map_init: bool = false;
+
+fn ensureInit() void {
+    if (map_init) return;
+    map = std.StringHashMap(*const Language).init(std.heap.page_allocator);
     for (&table) |*entry| {
-        if (std.mem.eql(u8, entry.ext, ext)) return &entry.lang;
+        map.put(entry.ext, &entry.lang) catch {};
     }
-    return &unknown;
+    map_init = true;
+}
+
+pub fn detect(filename: []const u8) *const Language {
+    ensureInit();
+    const ext = std.fs.path.extension(filename);
+    return map.get(ext) orelse &unknown;
 }

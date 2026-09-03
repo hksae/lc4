@@ -11,51 +11,59 @@ pub const LineCount = struct {
 pub fn countLines(content: []const u8, language: *const lang.Language) LineCount {
     var result = LineCount{};
     var in_block = false;
-    var remaining = content;
+    var i: usize = 0;
+    const len = content.len;
 
-    while (remaining.len > 0) {
-        const nl = std.mem.findScalar(u8, remaining, '\n');
-        const line = if (nl) |pos| remaining[0..pos] else remaining;
-        remaining = if (nl) |pos| remaining[pos + 1 ..] else &[0]u8{};
-
+    while (i < len) {
         result.lines += 1;
-        const trimmed = std.mem.trimStart(u8, line, " \t\r");
+
+        while (i < len and (content[i] == ' ' or content[i] == '\t' or content[i] == '\r')) : (i += 1) {}
+
+        if (i >= len or content[i] == '\n') {
+            result.blanks += 1;
+            if (i < len) i += 1;
+            continue;
+        }
 
         if (in_block) {
             result.comments += 1;
             if (language.block_close) |bc| {
-                if (std.mem.find(u8, trimmed, bc) != null) {
+                if (len - i >= bc.len and std.mem.eql(u8, content[i .. i + bc.len], bc)) {
                     in_block = false;
                 }
             }
-            continue;
-        }
-
-        if (trimmed.len == 0) {
-            result.blanks += 1;
+            while (i < len and content[i] != '\n') : (i += 1) {}
+            if (i < len) i += 1;
             continue;
         }
 
         if (language.block_open) |bo| {
-            if (std.mem.startsWith(u8, trimmed, bo)) {
+            if (len - i >= bo.len and std.mem.eql(u8, content[i .. i + bo.len], bo)) {
                 result.comments += 1;
                 if (language.block_close) |bc| {
-                    if (std.mem.find(u8, trimmed[bo.len..], bc) == null) {
+                    const line_end = std.mem.indexOfScalar(u8, content[i..], '\n') orelse len;
+                    if (std.mem.indexOf(u8, content[i .. i + line_end], bc) == null) {
                         in_block = true;
                     }
                 }
+                while (i < len and content[i] != '\n') : (i += 1) {}
+                if (i < len) i += 1;
                 continue;
             }
         }
 
         if (language.line_comment) |lc| {
-            if (std.mem.startsWith(u8, trimmed, lc)) {
+            if (len - i >= lc.len and std.mem.eql(u8, content[i .. i + lc.len], lc)) {
                 result.comments += 1;
+                while (i < len and content[i] != '\n') : (i += 1) {}
+                if (i < len) i += 1;
                 continue;
             }
         }
 
         result.code += 1;
+        while (i < len and content[i] != '\n') : (i += 1) {}
+        if (i < len) i += 1;
     }
 
     return result;
