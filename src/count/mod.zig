@@ -16,7 +16,7 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
-const BATCH_SIZE = 512;
+const BATCH_SIZE = 2048;
 
 pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, extensions_only: bool) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
@@ -27,16 +27,11 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
         };
     }
 
-    var offset: usize = 0;
-    while (offset < entries.len) {
-        const end = @min(offset + BATCH_SIZE, entries.len);
-        var group: std.Io.Group = .init;
-        for (entries[offset..end], 0..) |entry, i| {
-            try group.concurrent(io, countSingle, .{ io, entry, &results[offset + i], extensions_only });
-        }
-        try group.await(io);
-        offset = end;
+    var group: std.Io.Group = .init;
+    for (entries, 0..) |entry, i| {
+        try group.concurrent(io, countSingle, .{ io, entry, &results[i], extensions_only });
     }
+    try group.await(io);
 
     return results;
 }
@@ -57,27 +52,28 @@ fn readFile(io: std.Io, path: []const u8) ?[]u8 {
     const cwd = std.Io.Dir.cwd();
     const file = cwd.openFile(io, path, .{}) catch return null;
     defer file.close(io);
-    const stats = file.stat(io) catch return null;
-    const size: usize = @intCast(stats.size);
-    if (size == 0) {
-        return std.heap.smp_allocator.dupe(u8, "") catch null;
-    }
-    if (size > 100 * 1024 * 1024) return null;
-    const buf = std.heap.smp_allocator.alloc(u8, size) catch return null;
-    var total: usize = 0;
-    while (total < size) {
-        const remaining = buf[total..];
-        const n = file.readPositional(io, &.{remaining}, total) catch {
-            std.heap.smp_allocator.free(buf);
+
+    var buf: [64 * 1024]u8 = undefined;
+    var total: std.ArrayList(u8) = .empty;
+
+    while (true) {
+        const n = file.readStreaming(io, &.{&buf}) catch {
+            total.deinit(std.heap.smp_allocator);
             return null;
         };
-        if (n == 0) {
-            std.heap.smp_allocator.free(buf);
+        if (n == 0) break;
+        total.appendSlice(std.heap.smp_allocator, buf[0..n]) catch {
+            total.deinit(std.heap.smp_allocator);
             return null;
-        }
-        total += n;
+        };
     }
-    return buf;
+
+    if (total.items.len > 100 * 1024 * 1024) {
+        total.deinit(std.heap.smp_allocator);
+        return null;
+    }
+
+    return total.toOwnedSlice(std.heap.smp_allocator) catch null;
 }
 
 pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8) !AggregateResult {
