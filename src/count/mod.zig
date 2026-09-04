@@ -34,27 +34,39 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
     return results;
 }
 
+const small_file_threshold = 64 * 1024;
+
 fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_only: bool) std.Io.Cancelable!void {
     const cwd = std.Io.Dir.cwd();
     const file = cwd.openFile(io, entry.path, .{}) catch return;
     defer file.close(io);
 
-    const stats = file.stat(io) catch return;
-    const size: usize = @intCast(stats.size);
+    const file_stats = file.stat(io) catch return;
+    const size: usize = @intCast(file_stats.size);
     if (size == 0 or size > 100 * 1024 * 1024) return;
 
-    var mm = file.createMemoryMap(io, .{
-        .len = size,
-        .protection = .{ .read = true },
-    }) catch return;
-    defer mm.destroy(io);
-
-    if (!extensions_only) {
-        result.is_binary = binary.isBinary(mm.memory);
-        if (result.is_binary) return;
+    if (size < small_file_threshold) {
+        const buf = std.heap.page_allocator.alloc(u8, size) catch return;
+        defer std.heap.page_allocator.free(buf);
+        const n = file.readPositionalAll(io, buf, 0) catch return;
+        if (n < size) return;
+        if (!extensions_only) {
+            result.is_binary = binary.isBinary(buf);
+            if (result.is_binary) return;
+        }
+        result.line_count = lines_mod.countLines(buf, entry.lang_ptr);
+    } else {
+        var mm = file.createMemoryMap(io, .{
+            .len = size,
+            .protection = .{ .read = true },
+        }) catch return;
+        defer mm.destroy(io);
+        if (!extensions_only) {
+            result.is_binary = binary.isBinary(mm.memory);
+            if (result.is_binary) return;
+        }
+        result.line_count = lines_mod.countLines(mm.memory, entry.lang_ptr);
     }
-
-    result.line_count = lines_mod.countLines(mm.memory, entry.lang_ptr);
 }
 
 pub fn countFileMmap(io: std.Io, path: []const u8, language: *const lang.Language, counters: *AtomicCounters) void {
@@ -62,18 +74,26 @@ pub fn countFileMmap(io: std.Io, path: []const u8, language: *const lang.Languag
     const file = cwd.openFile(io, path, .{}) catch return;
     defer file.close(io);
 
-    const stats = file.stat(io) catch return;
-    const size: usize = @intCast(stats.size);
+    const file_stats = file.stat(io) catch return;
+    const size: usize = @intCast(file_stats.size);
     if (size == 0 or size > 100 * 1024 * 1024) return;
 
-    var mm = file.createMemoryMap(io, .{
-        .len = size,
-        .protection = .{ .read = true },
-    }) catch return;
-    defer mm.destroy(io);
-
-    const is_bin = binary.isBinary(mm.memory);
-    counters.countFile(mm.memory, language, is_bin);
+    if (size < small_file_threshold) {
+        const buf = std.heap.page_allocator.alloc(u8, size) catch return;
+        defer std.heap.page_allocator.free(buf);
+        const n = file.readPositionalAll(io, buf, 0) catch return;
+        if (n < size) return;
+        const is_bin = binary.isBinary(buf);
+        counters.countFile(buf, language, is_bin);
+    } else {
+        var mm = file.createMemoryMap(io, .{
+            .len = size,
+            .protection = .{ .read = true },
+        }) catch return;
+        defer mm.destroy(io);
+        const is_bin = binary.isBinary(mm.memory);
+        counters.countFile(mm.memory, language, is_bin);
+    }
 }
 
 const AtomicLangCounters = struct {

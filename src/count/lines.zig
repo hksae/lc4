@@ -10,7 +10,7 @@ pub const LineCount = struct {
 
 pub fn countLines(content: []const u8, language: *const lang.Language) LineCount {
     var result = LineCount{};
-    var in_block = false;
+    var block_depth: u32 = 0;
     var i: usize = 0;
     const len = content.len;
 
@@ -25,14 +25,26 @@ pub fn countLines(content: []const u8, language: *const lang.Language) LineCount
             continue;
         }
 
-        if (in_block) {
+        if (block_depth > 0) {
             result.comments += 1;
-            if (language.block_close) |bc| {
-                if (len - i >= bc.len and std.mem.eql(u8, content[i .. i + bc.len], bc)) {
-                    in_block = false;
+            while (i < len and content[i] != '\n') {
+                if (language.block_close) |bc| {
+                    if (len - i >= bc.len and std.mem.eql(u8, content[i .. i + bc.len], bc)) {
+                        block_depth -= 1;
+                        i += bc.len;
+                        if (block_depth == 0) break;
+                        continue;
+                    }
                 }
+                if (language.block_open) |bo| {
+                    if (len - i >= bo.len and std.mem.eql(u8, content[i .. i + bo.len], bo)) {
+                        block_depth += 1;
+                        i += bo.len;
+                        continue;
+                    }
+                }
+                i += 1;
             }
-            while (i < len and content[i] != '\n') : (i += 1) {}
             if (i < len) i += 1;
             continue;
         }
@@ -40,13 +52,24 @@ pub fn countLines(content: []const u8, language: *const lang.Language) LineCount
         if (language.block_open) |bo| {
             if (len - i >= bo.len and std.mem.eql(u8, content[i .. i + bo.len], bo)) {
                 result.comments += 1;
+                block_depth = 1;
+                i += bo.len;
                 if (language.block_close) |bc| {
-                    const line_end = std.mem.indexOfScalar(u8, content[i..], '\n') orelse len;
-                    if (std.mem.indexOf(u8, content[i .. i + line_end], bc) == null) {
-                        in_block = true;
+                    while (i < len and content[i] != '\n') {
+                        if (len - i >= bc.len and std.mem.eql(u8, content[i .. i + bc.len], bc)) {
+                            block_depth -= 1;
+                            i += bc.len;
+                            if (block_depth == 0) break;
+                            continue;
+                        }
+                        if (len - i >= bo.len and std.mem.eql(u8, content[i .. i + bo.len], bo)) {
+                            block_depth += 1;
+                            i += bo.len;
+                            continue;
+                        }
+                        i += 1;
                     }
                 }
-                while (i < len and content[i] != '\n') : (i += 1) {}
                 if (i < len) i += 1;
                 continue;
             }
@@ -121,4 +144,92 @@ test "no trailing newline" {
     const r = countLines(source, &zig_test_lang);
     try std.testing.expectEqual(@as(u64, 3), r.lines);
     try std.testing.expectEqual(@as(u64, 3), r.code);
+}
+
+test "nested block comments" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source =
+        "int a;\n" ++
+        "/* outer /* inner */ still comment */\n" ++
+        "int b;\n";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 3), r.lines);
+    try std.testing.expectEqual(@as(u64, 0), r.blanks);
+    try std.testing.expectEqual(@as(u64, 1), r.comments);
+    try std.testing.expectEqual(@as(u64, 2), r.code);
+}
+
+test "deeply nested block comments" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source =
+        "/*\n" ++
+        "  /*\n" ++
+        "    /*\n" ++
+        "  */\n" ++
+        "  */\n" ++
+        "*/\n" ++
+        "int x;\n";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 7), r.lines);
+    try std.testing.expectEqual(@as(u64, 6), r.comments);
+    try std.testing.expectEqual(@as(u64, 1), r.code);
+}
+
+test "multiple nested blocks on one line" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source =
+        "/* a /* b */ /* c */ */\n" ++
+        "int x;\n";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 2), r.lines);
+    try std.testing.expectEqual(@as(u64, 1), r.comments);
+    try std.testing.expectEqual(@as(u64, 1), r.code);
+}
+
+test "block comment at end of file no newline" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source = "int a;\n/* comment */";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 2), r.lines);
+    try std.testing.expectEqual(@as(u64, 1), r.comments);
+    try std.testing.expectEqual(@as(u64, 1), r.code);
+}
+
+test "nested block comment at end of file" {
+    const c_lang = lang.Language{
+        .name = "C",
+        .line_comment = "//",
+        .block_open = "/*",
+        .block_close = "*/",
+        .color = "",
+    };
+    const source = "/* /* */";
+    const r = countLines(source, &c_lang);
+    try std.testing.expectEqual(@as(u64, 1), r.lines);
+    try std.testing.expectEqual(@as(u64, 1), r.comments);
+    try std.testing.expectEqual(@as(u64, 0), r.code);
 }
