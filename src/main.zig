@@ -23,24 +23,39 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    const entries = try scan.collectFiles(gpa, io, config);
-    defer {
-        for (entries) |e| gpa.free(e.path);
-        gpa.free(entries);
+    if (config.verbose) {
+        const entries = try scan.collectFiles(gpa, io, config);
+        defer {
+            for (entries) |e| gpa.free(e.path);
+            gpa.free(entries);
+        }
+
+        if (entries.len == 0) {
+            try emit(io, "\n  No files found.\n\n");
+            return;
+        }
+
+        const results = try count.countAll(gpa, io, entries, config.extensions != null);
+        defer gpa.free(results);
+
+        const agg = try count.aggregate(gpa, results, config.sort_by);
+        defer gpa.free(agg.stats);
+
+        try display.show(gpa, io, results, agg, config);
+    } else {
+        var atomic = try scan.collectAndCountAtomic(gpa, io, config);
+        defer atomic.deinit();
+
+        if (atomic.map.count() == 0) {
+            try emit(io, "\n  No files found.\n\n");
+            return;
+        }
+
+        const agg = try atomic.aggregate(gpa, config.sort_by);
+        defer gpa.free(agg.stats);
+
+        try display.show(gpa, io, &.{}, agg, config);
     }
-
-    if (entries.len == 0) {
-        try emit(io, "\n  No files found.\n\n");
-        return;
-    }
-
-    const results = try count.countAll(gpa, io, entries, config.extensions != null);
-    defer gpa.free(results);
-
-    const agg = try count.aggregate(gpa, results, config.sort_by);
-    defer gpa.free(agg.stats);
-
-    try display.show(gpa, io, results, agg, config);
 }
 
 pub fn emit(io: std.Io, data: []const u8) !void {

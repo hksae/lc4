@@ -25,7 +25,7 @@ const Entry = struct {
 
 const unknown = Language{ .name = "Unknown", .color = "\x1b[37m" };
 
-const table = [_]Entry{
+pub const table = [_]Entry{
     .{ .ext = ".zig", .lang = .{ .name = "Zig", .line_comment = "//", .block_open = "//!", .block_close = null, .color = "\x1b[38;5;208m" } },
     .{ .ext = ".rs", .lang = .{ .name = "Rust", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;216m" } },
     .{ .ext = ".c", .lang = .{ .name = "C", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;039m" } },

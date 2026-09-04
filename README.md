@@ -2,7 +2,7 @@
   <img src="assets/lc4_header.png" alt="lc4" />
 </p>
 
-Blazing-fast command-line line counter for your project. Written in Zig.
+Fast command-line line counter for your project. Written in Zig.
 
 ## Features
 

@@ -46,33 +46,106 @@ fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_onl
     result.line_count = lines_mod.countLines(content, entry.lang_ptr);
 }
 
-fn readFile(io: std.Io, path: []const u8) ?[]u8 {
+pub fn readFile(io: std.Io, path: []const u8) ?[]u8 {
     const cwd = std.Io.Dir.cwd();
     const file = cwd.openFile(io, path, .{}) catch return null;
     defer file.close(io);
-
-    var buf: [64 * 1024]u8 = undefined;
-    var total: std.ArrayList(u8) = .empty;
-
-    while (true) {
-        const n = file.readStreaming(io, &.{&buf}) catch {
-            total.deinit(std.heap.smp_allocator);
+    const stats = file.stat(io) catch return null;
+    const size: usize = @intCast(stats.size);
+    if (size == 0) {
+        return std.heap.smp_allocator.dupe(u8, "") catch null;
+    }
+    if (size > 100 * 1024 * 1024) return null;
+    const buf = std.heap.smp_allocator.alloc(u8, size) catch return null;
+    var total: usize = 0;
+    while (total < size) {
+        const remaining = buf[total..];
+        const n = file.readPositional(io, &.{remaining}, total) catch {
+            std.heap.smp_allocator.free(buf);
             return null;
         };
-        if (n == 0) break;
-        total.appendSlice(std.heap.smp_allocator, buf[0..n]) catch {
-            total.deinit(std.heap.smp_allocator);
+        if (n == 0) {
+            std.heap.smp_allocator.free(buf);
             return null;
-        };
+        }
+        total += n;
     }
-
-    if (total.items.len > 100 * 1024 * 1024) {
-        total.deinit(std.heap.smp_allocator);
-        return null;
-    }
-
-    return total.toOwnedSlice(std.heap.smp_allocator) catch null;
+    return buf;
 }
+
+const AtomicLangCounters = struct {
+    files: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    lines: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    blanks: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    comments: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    code: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    color: []const u8,
+};
+
+pub const AtomicCounters = struct {
+    map: std.StringHashMap(AtomicLangCounters),
+
+    pub fn init(allocator: std.mem.Allocator) AtomicCounters {
+        var map = std.StringHashMap(AtomicLangCounters).init(allocator);
+        for (&lang.table) |*entry| {
+            map.put(entry.lang.name, .{ .color = entry.lang.color }) catch {};
+        }
+        return .{ .map = map };
+    }
+
+    pub fn deinit(self: *AtomicCounters) void {
+        self.map.deinit();
+    }
+
+    pub fn countFile(self: *AtomicCounters, content: []const u8, language: *const lang.Language, is_binary_file: bool) void {
+        if (is_binary_file) return;
+        if (self.map.getPtr(language.name)) |entry| {
+            _ = entry.files.fetchAdd(1, .monotonic);
+            const lc = lines_mod.countLines(content, language);
+            _ = entry.lines.fetchAdd(lc.lines, .monotonic);
+            _ = entry.blanks.fetchAdd(lc.blanks, .monotonic);
+            _ = entry.comments.fetchAdd(lc.comments, .monotonic);
+            _ = entry.code.fetchAdd(lc.code, .monotonic);
+        }
+    }
+
+    pub fn aggregate(self: *AtomicCounters, allocator: std.mem.Allocator, sort_by: []const u8) !AggregateResult {
+        var stats = std.ArrayList(lang.LanguageStat).empty;
+        var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
+
+        var it = self.map.iterator();
+        while (it.next()) |entry| {
+            const files = entry.value_ptr.files.load(.monotonic);
+            if (files == 0) continue;
+            try stats.append(allocator, .{
+                .name = entry.key_ptr.*,
+                .color = entry.value_ptr.color,
+                .files = files,
+                .lines = entry.value_ptr.lines.load(.monotonic),
+                .blanks = entry.value_ptr.blanks.load(.monotonic),
+                .comments = entry.value_ptr.comments.load(.monotonic),
+                .code = entry.value_ptr.code.load(.monotonic),
+            });
+            total.files += files;
+            total.lines += entry.value_ptr.lines.load(.monotonic);
+            total.blanks += entry.value_ptr.blanks.load(.monotonic);
+            total.comments += entry.value_ptr.comments.load(.monotonic);
+            total.code += entry.value_ptr.code.load(.monotonic);
+        }
+
+        const result = try stats.toOwnedSlice(allocator);
+        std.mem.sort(lang.LanguageStat, result, sort_by, struct {
+            fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
+                if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
+                if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
+                if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
+                return a.lines > b.lines;
+            }
+        }.cmp);
+
+        return .{ .stats = result, .total = total };
+    }
+};
 
 pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8) !AggregateResult {
     var map: std.StringHashMap(lang.LanguageStat) = .init(allocator);
