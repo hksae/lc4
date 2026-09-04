@@ -112,7 +112,7 @@ pub const AtomicCounters = struct {
         }
     }
 
-    pub fn aggregate(self: *AtomicCounters, allocator: std.mem.Allocator, sort_by: []const u8) !AggregateResult {
+    pub fn aggregate(self: *AtomicCounters, allocator: std.mem.Allocator, sort_by: []const u8, top_n: ?u32) !AggregateResult {
         var stats = std.ArrayList(lang.LanguageStat).empty;
         var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
 
@@ -137,20 +137,80 @@ pub const AtomicCounters = struct {
         }
 
         const result = try stats.toOwnedSlice(allocator);
-        std.mem.sort(lang.LanguageStat, result, sort_by, struct {
-            fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
-                if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
-                if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
-                if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
-                return a.lines > b.lines;
-            }
-        }.cmp);
+        const len = topNOrSort(result, sort_by, top_n);
+        const trimmed = try allocator.alloc(lang.LanguageStat, len);
+        @memcpy(trimmed, result[0..len]);
+        allocator.free(result);
 
-        return .{ .stats = result, .total = total };
+        return .{ .stats = trimmed, .total = total };
     }
 };
 
-pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8) !AggregateResult {
+fn topNOrSort(stats: []lang.LanguageStat, sort_by: []const u8, top_n: ?u32) usize {
+    const n = top_n orelse @as(usize, stats.len);
+    if (n >= stats.len) {
+        sortStats(stats, sort_by);
+        return stats.len;
+    }
+
+    for (0..n) |i| {
+        siftUp(stats, i, sort_by);
+    }
+
+    for (n..stats.len) |i| {
+        if (isGreater(stats[i], stats[0], sort_by)) {
+            stats[0] = stats[i];
+            siftDown(stats, 0, n, sort_by);
+        }
+    }
+
+    sortStats(stats[0..n], sort_by);
+    return n;
+}
+
+fn isGreater(a: lang.LanguageStat, b: lang.LanguageStat, sort_by: []const u8) bool {
+    if (std.mem.eql(u8, sort_by, "files")) return a.files > b.files;
+    if (std.mem.eql(u8, sort_by, "code")) return a.code > b.code;
+    if (std.mem.eql(u8, sort_by, "name")) return std.mem.lessThan(u8, a.name, b.name);
+    return a.lines > b.lines;
+}
+
+fn siftUp(stats: []lang.LanguageStat, start: usize, sort_by: []const u8) void {
+    var i = start;
+    while (i > 0) {
+        const parent = (i - 1) / 2;
+        if (!isGreater(stats[i], stats[parent], sort_by)) break;
+        std.mem.swap(lang.LanguageStat, &stats[i], &stats[parent]);
+        i = parent;
+    }
+}
+
+fn siftDown(stats: []lang.LanguageStat, root: usize, len: usize, sort_by: []const u8) void {
+    var r = root;
+    while (true) {
+        var smallest = r;
+        const left = 2 * r + 1;
+        const right = 2 * r + 2;
+        if (left < len and isGreater(stats[left], stats[smallest], sort_by)) smallest = left;
+        if (right < len and isGreater(stats[right], stats[smallest], sort_by)) smallest = right;
+        if (smallest == r) break;
+        std.mem.swap(lang.LanguageStat, &stats[r], &stats[smallest]);
+        r = smallest;
+    }
+}
+
+fn sortStats(stats: []lang.LanguageStat, sort_by: []const u8) void {
+    std.mem.sort(lang.LanguageStat, stats, sort_by, struct {
+        fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
+            if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
+            if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
+            if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
+            return a.lines > b.lines;
+        }
+    }.cmp);
+}
+
+pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8, top_n: ?u32) !AggregateResult {
     var map: std.StringHashMap(lang.LanguageStat) = .init(allocator);
     defer map.deinit();
     var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
@@ -184,14 +244,10 @@ pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort
         stats[i] = val.*;
     }
 
-    std.mem.sort(lang.LanguageStat, stats, sort_by, struct {
-        fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
-            if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
-            if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
-            if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
-            return a.lines > b.lines;
-        }
-    }.cmp);
+    const len = topNOrSort(stats, sort_by, top_n);
+    const trimmed = try allocator.alloc(lang.LanguageStat, len);
+    @memcpy(trimmed, stats[0..len]);
+    allocator.free(stats);
 
-    return .{ .stats = stats, .total = total };
+    return .{ .stats = trimmed, .total = total };
 }
