@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-windows-gnu
+            artifact: lc4-x86_64-windows.exe
+          - target: x86_64-linux-gnu
+            artifact: lc4-x86_64-linux
+          - target: aarch64-linux-gnu
+            artifact: lc4-aarch64-linux
+          - target: x86_64-macos
+            artifact: lc4-x86_64-macos
+          - target: aarch64-macos
+            artifact: lc4-aarch64-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.17.0
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
+
+      - name: Rename binary
+        run: |
+          cp zig-out/bin/lc4${{ matrix.target == 'x86_64-windows-gnu' && '.exe' || '' }} ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            lc4-x86_64-windows.exe
+            lc4-x86_64-linux
+            lc4-aarch64-linux
+            lc4-x86_64-macos
+            lc4-aarch64-macos
