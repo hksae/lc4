@@ -1,13 +1,13 @@
 const std = @import("std");
 const lang = @import("../lang/mod.zig");
-const lines = @import("lines.zig");
+const lines_mod = @import("lines.zig");
 const binary = @import("binary.zig");
 const FileEntry = @import("../scan/mod.zig").FileEntry;
 
 pub const FileResult = struct {
     path: []const u8,
     lang_ptr: *const lang.Language,
-    line_count: lines.LineCount = .{},
+    line_count: lines_mod.LineCount = .{},
     is_binary: bool = false,
 };
 
@@ -15,8 +15,6 @@ pub const AggregateResult = struct {
     stats: []lang.LanguageStat,
     total: lang.LanguageStat,
 };
-
-const BATCH_SIZE = 2048;
 
 pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, extensions_only: bool) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
@@ -45,7 +43,7 @@ fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_onl
         if (result.is_binary) return;
     }
 
-    result.line_count = lines.countLines(content, entry.lang_ptr);
+    result.line_count = lines_mod.countLines(content, entry.lang_ptr);
 }
 
 fn readFile(io: std.Io, path: []const u8) ?[]u8 {
