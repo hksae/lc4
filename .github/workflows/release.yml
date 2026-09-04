@@ -12,6 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-windows-gnu
@@ -30,14 +31,19 @@ jobs:
 
       - uses: mlugg/setup-zig@v1
         with:
-          version: 0.17.0
+          version: master
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
 
       - name: Rename binary
+        shell: bash
         run: |
-          cp zig-out/bin/lc4${{ matrix.target == 'x86_64-windows-gnu' && '.exe' || '' }} ${{ matrix.artifact }}
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp zig-out/bin/lc4.exe "${{ matrix.artifact }}"
+          else
+            cp zig-out/bin/lc4 "${{ matrix.artifact }}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
