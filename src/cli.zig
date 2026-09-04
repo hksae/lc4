@@ -1,5 +1,6 @@
 const std = @import("std");
 const Config = @import("config.zig").Config;
+const build_options = @import("build_options");
 
 pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.Args) !Config {
     var config = Config{};
@@ -14,7 +15,7 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
             try std.Io.File.stdout().writeStreamingAll(io, buf);
             std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "-V") or std.mem.eql(u8, arg, "--version")) {
-            try std.Io.File.stdout().writeStreamingAll(io, "lc4 0.1.0\n");
+            try std.Io.File.stdout().writeStreamingAll(io, "lc4 " ++ build_options.version ++ "\n");
             std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "-a") or std.mem.eql(u8, arg, "--all")) {
             config.respect_gitignore = false;

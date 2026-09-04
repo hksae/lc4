@@ -4,11 +4,22 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const version = blk: {
+        const zon = @embedFile("build.zig.zon");
+        const start = std.mem.indexOf(u8, zon, ".version = \"").? + 12;
+        const end = std.mem.indexOf(u8, zon[start..], "\"").? + start;
+        break :blk zon[start..end];
+    };
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
+
     const module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    module.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
         .name = "lc4",
