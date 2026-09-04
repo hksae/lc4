@@ -3,7 +3,6 @@ const Config = @import("../config.zig").Config;
 const lang = @import("../lang/mod.zig");
 const gitignore = @import("gitignore.zig");
 const count = @import("../count/mod.zig");
-const binary_mod = @import("../count/binary.zig");
 
 pub const FileEntry = struct {
     path: []const u8,
@@ -300,14 +299,7 @@ fn walkSubdirAtomic(
         }
 
         const language = lang.detect(full_path);
-        const content = count.readFile(io, full_path) orelse {
-            std.heap.smp_allocator.free(full_path);
-            continue;
-        };
-        defer std.heap.smp_allocator.free(content);
-
-        const is_bin = binary_mod.isBinary(content);
-        task.counters.countFile(content, language, is_bin);
+        count.countFileMmap(io, full_path, language, task.counters);
         std.heap.smp_allocator.free(full_path);
     }
 }
@@ -415,14 +407,7 @@ pub fn collectAndCountAtomic(allocator: std.mem.Allocator, io: std.Io, config: C
         };
         defer allocator.free(full_path);
 
-        const content = count.readFile(io, full_path) orelse {
-            allocator.free(path_copy);
-            continue;
-        };
-        defer std.heap.smp_allocator.free(content);
-
-        const is_bin = binary_mod.isBinary(content);
-        counters.countFile(content, language, is_bin);
+        count.countFileMmap(io, full_path, language, &counters);
         allocator.free(path_copy);
     }
 

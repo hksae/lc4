@@ -35,42 +35,45 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
 }
 
 fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_only: bool) std.Io.Cancelable!void {
-    const content = readFile(io, entry.path) orelse return;
-    defer std.heap.smp_allocator.free(content);
+    const cwd = std.Io.Dir.cwd();
+    const file = cwd.openFile(io, entry.path, .{}) catch return;
+    defer file.close(io);
+
+    const stats = file.stat(io) catch return;
+    const size: usize = @intCast(stats.size);
+    if (size == 0 or size > 100 * 1024 * 1024) return;
+
+    var mm = file.createMemoryMap(io, .{
+        .len = size,
+        .protection = .{ .read = true },
+    }) catch return;
+    defer mm.destroy(io);
 
     if (!extensions_only) {
-        result.is_binary = binary.isBinary(content);
+        result.is_binary = binary.isBinary(mm.memory);
         if (result.is_binary) return;
     }
 
-    result.line_count = lines_mod.countLines(content, entry.lang_ptr);
+    result.line_count = lines_mod.countLines(mm.memory, entry.lang_ptr);
 }
 
-pub fn readFile(io: std.Io, path: []const u8) ?[]u8 {
+pub fn countFileMmap(io: std.Io, path: []const u8, language: *const lang.Language, counters: *AtomicCounters) void {
     const cwd = std.Io.Dir.cwd();
-    const file = cwd.openFile(io, path, .{}) catch return null;
+    const file = cwd.openFile(io, path, .{}) catch return;
     defer file.close(io);
-    const stats = file.stat(io) catch return null;
+
+    const stats = file.stat(io) catch return;
     const size: usize = @intCast(stats.size);
-    if (size == 0) {
-        return std.heap.smp_allocator.dupe(u8, "") catch null;
-    }
-    if (size > 100 * 1024 * 1024) return null;
-    const buf = std.heap.smp_allocator.alloc(u8, size) catch return null;
-    var total: usize = 0;
-    while (total < size) {
-        const remaining = buf[total..];
-        const n = file.readPositional(io, &.{remaining}, total) catch {
-            std.heap.smp_allocator.free(buf);
-            return null;
-        };
-        if (n == 0) {
-            std.heap.smp_allocator.free(buf);
-            return null;
-        }
-        total += n;
-    }
-    return buf;
+    if (size == 0 or size > 100 * 1024 * 1024) return;
+
+    var mm = file.createMemoryMap(io, .{
+        .len = size,
+        .protection = .{ .read = true },
+    }) catch return;
+    defer mm.destroy(io);
+
+    const is_bin = binary.isBinary(mm.memory);
+    counters.countFile(mm.memory, language, is_bin);
 }
 
 const AtomicLangCounters = struct {
