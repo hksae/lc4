@@ -41,7 +41,11 @@ pub fn main(init: std.process.Init) !void {
         const agg = try count.aggregate(gpa, results, config.sort_by);
         defer gpa.free(agg.stats);
 
-        try display.show(gpa, io, results, agg, config);
+        var agg_mutable = agg;
+        if (config.top_n) |n| {
+            if (agg_mutable.stats.len > n) agg_mutable.stats.len = n;
+        }
+        try display.show(gpa, io, results, agg_mutable, config);
     } else {
         var atomic = try scan.collectAndCountAtomic(gpa, io, config);
         defer atomic.deinit();
@@ -54,7 +58,11 @@ pub fn main(init: std.process.Init) !void {
         const agg = try atomic.aggregate(gpa, config.sort_by);
         defer gpa.free(agg.stats);
 
-        try display.show(gpa, io, &.{}, agg, config);
+        var agg_mutable = agg;
+        if (config.top_n) |n| {
+            if (agg_mutable.stats.len > n) agg_mutable.stats.len = n;
+        }
+        try display.show(gpa, io, &.{}, agg_mutable, config);
     }
 }
 

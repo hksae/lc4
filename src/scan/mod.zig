@@ -2,6 +2,7 @@ const std = @import("std");
 const Config = @import("../config.zig").Config;
 const lang = @import("../lang/mod.zig");
 const gitignore = @import("gitignore.zig");
+const gitignore_cache = @import("gitignore_cache.zig");
 const count = @import("../count/mod.zig");
 
 pub const FileEntry = struct {
@@ -43,7 +44,7 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
         const content = root.readFileAlloc(io, ".gitignore", allocator, .limited(10 * 1024 * 1024)) catch null;
         if (content) |c| {
             defer allocator.free(c);
-            gitignore_patterns = try gitignore.parse(allocator, c);
+            gitignore_patterns = try gitignore_cache.loadOrParse(allocator, io, root, c);
         }
     }
 
@@ -330,7 +331,7 @@ pub fn collectAndCountAtomic(allocator: std.mem.Allocator, io: std.Io, config: C
         const content = root.readFileAlloc(io, ".gitignore", allocator, .limited(10 * 1024 * 1024)) catch null;
         if (content) |c| {
             defer allocator.free(c);
-            gitignore_patterns = try gitignore.parse(allocator, c);
+            gitignore_patterns = try gitignore_cache.loadOrParse(allocator, io, root, c);
         }
     }
 

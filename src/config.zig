@@ -7,4 +7,5 @@ pub const Config = struct {
     extensions: ?[]const []const u8 = null,
     root_path: ?[]const u8 = null,
     sort_by: []const u8 = "lines",
+    top_n: ?u32 = null,
 };

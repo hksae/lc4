@@ -30,6 +30,10 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             config.json_output = true;
+        } else if (std.mem.eql(u8, arg, "--top")) {
+            if (args.next()) |n_str| {
+                config.top_n = std.fmt.parseInt(u32, n_str, 10) catch null;
+            }
         } else if (std.mem.eql(u8, arg, "-e") or std.mem.eql(u8, arg, "--ext")) {
             if (args.next()) |ext_str| {
                 var exts: std.ArrayList([]const u8) = .empty;
@@ -79,6 +83,7 @@ fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
         \\  -v, --verbose        Show per-file breakdown
         \\      --json           Output as JSON
         \\      --sort FIELD     Sort by: lines (default), files, code, name
+        \\      --top N          Show only top N languages
         \\  -e, --ext .ext,...   Filter by extensions (comma-separated)
         \\  -V, --version        Show version
         \\  -h, --help           Show this help
