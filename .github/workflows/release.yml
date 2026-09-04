@@ -29,9 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ziglang/setup-zig@v2
-        with:
-          version: master
+      - name: Install Zig nightly
+        run: |
+          INDEX=$(curl -sSfL https://ziglang.org/download/index.json)
+          VERSION=$(echo "$INDEX" | python3 -c "import sys,json; print(json.load(sys.stdin)['master']['version'])")
+          TARBALL=$(echo "$INDEX" | python3 -c "import sys,json; print(json.load(sys.stdin)['master']['tarball'])")
+          curl -sSfL "$TARBALL" | tar -xJ
+          echo "$PWD/zig-linux-x86_64-$VERSION" >> $GITHUB_PATH
 
       - run: zig version
 
