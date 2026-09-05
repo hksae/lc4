@@ -28,7 +28,6 @@ lc4 -v                  # per-file breakdown
 lc4 -b                  # include binary files
 lc4 --json              # JSON output
 lc4 -e .zig,.rs         # only these extensions
-lc4 -n                  # no colors
 lc4 --sort name         # sort by name instead of lines
 lc4 --top 5             # show only top 5 languages
 ```
