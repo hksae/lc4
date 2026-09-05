@@ -49,7 +49,7 @@ lc4 --top 5             # show only top 5 languages
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 
-## Example
+## Example output
 
 ```
 ┌────────────┬────────┬──────────┬──────────┬────────────┬──────────┐
