@@ -23,7 +23,7 @@ const Entry = struct {
     lang: Language,
 };
 
-const unknown = Language{ .name = "Unknown", .color = "\x1b[37m" };
+pub const unknown = Language{ .name = "Unknown", .color = "\x1b[37m" };
 
 pub const table = [_]Entry{
     // в”Ђв”Ђ Zig в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ

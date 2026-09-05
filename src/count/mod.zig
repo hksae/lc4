@@ -6,7 +6,7 @@ const FileEntry = @import("../scan/mod.zig").FileEntry;
 
 pub const FileResult = struct {
     path: []const u8,
-    lang_ptr: *const lang.Language,
+    lang_ptr: *const lang.Language = &lang.unknown,
     line_count: lines_mod.LineCount = .{},
     is_binary: bool = false,
 };
@@ -16,34 +16,44 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
+const batch_size = 64;
+
 pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, extensions_only: bool) ![]FileResult {
     var results = try allocator.alloc(FileResult, entries.len);
     for (entries, 0..) |entry, i| {
-        results[i] = .{
-            .path = entry.path,
-            .lang_ptr = entry.lang_ptr,
-        };
+        results[i] = .{ .path = entry.path };
     }
 
     var group: std.Io.Group = .init;
-    for (entries, 0..) |entry, i| {
-        try group.concurrent(io, countSingle, .{ io, entry, &results[i], extensions_only });
+    var i: usize = 0;
+    while (i < entries.len) : (i += batch_size) {
+        const end = @min(i + batch_size, entries.len);
+        try group.concurrent(io, countBatch, .{ io, entries[i..end], results[i..end], extensions_only });
     }
     try group.await(io);
 
     return results;
 }
 
+fn countBatch(io: std.Io, entries: []const FileEntry, results: []FileResult, extensions_only: bool) std.Io.Cancelable!void {
+    for (entries, 0..) |entry, j| {
+        countSingle(io, entry.path, &results[j], extensions_only);
+    }
+}
+
 const small_file_threshold = 64 * 1024;
 
-fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_only: bool) std.Io.Cancelable!void {
+fn countSingle(io: std.Io, path: []const u8, result: *FileResult, extensions_only: bool) void {
     const cwd = std.Io.Dir.cwd();
-    const file = cwd.openFile(io, entry.path, .{}) catch return;
+    const file = cwd.openFile(io, path, .{}) catch return;
     defer file.close(io);
 
     const file_stats = file.stat(io) catch return;
     const size: usize = @intCast(file_stats.size);
     if (size == 0 or size > 100 * 1024 * 1024) return;
+
+    const language = lang.detect(path);
+    result.lang_ptr = language;
 
     if (size < small_file_threshold) {
         const buf = std.heap.page_allocator.alloc(u8, size) catch return;
@@ -54,7 +64,7 @@ fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_onl
             result.is_binary = binary.isBinary(buf);
             if (result.is_binary) return;
         }
-        result.line_count = lines_mod.countLines(buf, entry.lang_ptr);
+        result.line_count = lines_mod.countLines(buf, language);
     } else {
         var mm = file.createMemoryMap(io, .{
             .len = size,
@@ -65,11 +75,11 @@ fn countSingle(io: std.Io, entry: FileEntry, result: *FileResult, extensions_onl
             result.is_binary = binary.isBinary(mm.memory);
             if (result.is_binary) return;
         }
-        result.line_count = lines_mod.countLines(mm.memory, entry.lang_ptr);
+        result.line_count = lines_mod.countLines(mm.memory, language);
     }
 }
 
-pub fn countFileMmap(io: std.Io, path: []const u8, language: *const lang.Language, counters: *AtomicCounters) void {
+pub fn countFileMmap(io: std.Io, path: []const u8, counters: *AtomicCounters) void {
     const cwd = std.Io.Dir.cwd();
     const file = cwd.openFile(io, path, .{}) catch return;
     defer file.close(io);
@@ -77,6 +87,8 @@ pub fn countFileMmap(io: std.Io, path: []const u8, language: *const lang.Languag
     const file_stats = file.stat(io) catch return;
     const size: usize = @intCast(file_stats.size);
     if (size == 0 or size > 100 * 1024 * 1024) return;
+
+    const language = lang.detect(path);
 
     if (size < small_file_threshold) {
         const buf = std.heap.page_allocator.alloc(u8, size) catch return;

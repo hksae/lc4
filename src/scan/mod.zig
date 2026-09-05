@@ -7,7 +7,6 @@ const count = @import("../count/mod.zig");
 
 pub const FileEntry = struct {
     path: []const u8,
-    lang_ptr: *const lang.Language,
 };
 
 const skip_dirs = [_][]const u8{ ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode", ".zig-cache", ".zig-out", "zig-out", "target" };
@@ -117,8 +116,7 @@ pub fn collectFiles(allocator: std.mem.Allocator, io: std.Io, config: Config) ![
             }
         }
 
-        const language = lang.detect(path_copy);
-        try root_entries.append(allocator, .{ .path = path_copy, .lang_ptr = language });
+        try root_entries.append(allocator, .{ .path = path_copy });
     }
 
     const patterns_ptr: ?[]const gitignore.Pattern = if (gitignore_patterns) |p| p.items else null;
@@ -230,8 +228,7 @@ fn walkSubdir(
             }
         }
 
-        const language = lang.detect(full_path);
-        task.entries.append(task.allocator, .{ .path = full_path, .lang_ptr = language }) catch {
+        task.entries.append(task.allocator, .{ .path = full_path }) catch {
             task.allocator.free(full_path);
         };
     }
@@ -299,8 +296,7 @@ fn walkSubdirAtomic(
             }
         }
 
-        const language = lang.detect(full_path);
-        count.countFileMmap(io, full_path, language, task.counters);
+        count.countFileMmap(io, full_path, task.counters);
         std.heap.smp_allocator.free(full_path);
     }
 }
@@ -401,14 +397,13 @@ pub fn collectAndCountAtomic(allocator: std.mem.Allocator, io: std.Io, config: C
             }
         }
 
-        const language = lang.detect(path_copy);
         const full_path = std.fs.path.join(allocator, &.{ root_path, entry.path }) catch {
             allocator.free(path_copy);
             continue;
         };
         defer allocator.free(full_path);
 
-        count.countFileMmap(io, full_path, language, &counters);
+        count.countFileMmap(io, full_path, &counters);
         allocator.free(path_copy);
     }
 
