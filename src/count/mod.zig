@@ -56,15 +56,15 @@ fn countSingle(io: std.Io, path: []const u8, result: *FileResult, extensions_onl
     result.lang_ptr = language;
 
     if (size < small_file_threshold) {
-        const buf = std.heap.page_allocator.alloc(u8, size) catch return;
-        defer std.heap.page_allocator.free(buf);
-        const n = file.readPositionalAll(io, buf, 0) catch return;
+        var buf: [small_file_threshold]u8 = undefined;
+        const n = file.readPositionalAll(io, &buf, 0) catch return;
         if (n < size) return;
+        const slice = buf[0..size];
         if (!extensions_only) {
-            result.is_binary = binary.isBinary(buf);
+            result.is_binary = binary.isBinary(slice);
             if (result.is_binary) return;
         }
-        result.line_count = lines_mod.countLines(buf, language);
+        result.line_count = lines_mod.countLines(slice, language);
     } else {
         var mm = file.createMemoryMap(io, .{
             .len = size,
@@ -91,12 +91,12 @@ pub fn countFileMmap(io: std.Io, path: []const u8, counters: *AtomicCounters) vo
     const language = lang.detect(path);
 
     if (size < small_file_threshold) {
-        const buf = std.heap.page_allocator.alloc(u8, size) catch return;
-        defer std.heap.page_allocator.free(buf);
-        const n = file.readPositionalAll(io, buf, 0) catch return;
+        var buf: [small_file_threshold]u8 = undefined;
+        const n = file.readPositionalAll(io, &buf, 0) catch return;
         if (n < size) return;
-        const is_bin = binary.isBinary(buf);
-        counters.countFile(buf, language, is_bin);
+        const slice = buf[0..size];
+        const is_bin = binary.isBinary(slice);
+        counters.countFile(slice, language, is_bin);
     } else {
         var mm = file.createMemoryMap(io, .{
             .len = size,

@@ -4,6 +4,7 @@ pub const Config = struct {
     include_binaries: bool = false,
     json_output: bool = false,
     no_color: bool = false,
+    short_output: bool = false,
     extensions: ?[]const []const u8 = null,
     root_path: ?[]const u8 = null,
     sort_by: []const u8 = "lines",

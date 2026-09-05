@@ -31,6 +31,8 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             config.json_output = true;
+        } else if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--short")) {
+            config.short_output = true;
         } else if (std.mem.eql(u8, arg, "--top")) {
             if (args.next()) |n_str| {
                 config.top_n = std.fmt.parseInt(u32, n_str, 10) catch null;
@@ -81,6 +83,7 @@ fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
         \\  -a, --all            Ignore .gitignore, scan all files
         \\  -b, --binaries       Include binary files in count
         \\  -n, --no-color       Disable colored output
+        \\  -s, --short          One-line summary output
         \\  -v, --verbose        Show per-file breakdown
         \\      --json           Output as JSON
         \\      --sort FIELD     Sort by: lines (default), files, code, name
