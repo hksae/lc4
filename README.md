@@ -19,7 +19,7 @@ Requires Zig 0.17.
 
 ```sh
 zig build -Doptimize=ReleaseFast
-# binary at zig-out/bin/lc4 (or lc4.exe on Windows)
+# binary at zig-out/bin/lc4
 ```
 
 ## Usage
