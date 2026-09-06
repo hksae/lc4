@@ -11,7 +11,7 @@ Fast command-line line counter for your project. Written in Zig.
 
 ## Install
 
-Requires Zig 0.17.
+Requires **Zig `0.17.0-dev.1978+c961124d9`**, the exact development snapshot used by CI and releases. Other Zig 0.17 snapshots are not guaranteed compatible.
 
 ```sh
 zig build -Doptimize=ReleaseFast
@@ -41,7 +41,8 @@ lc4 --top 5             # show only top 5 languages
 | `-b, --binaries` | Include binary files |
 | `-n, --no-color` | Disable colored output |
 | `-v, --verbose` | Per-file breakdown |
-| `--json` | JSON output |
+| `--json` | JSON output (takes precedence over `--short`; `-v` does not change JSON totals) |
+| `-s, --short` | One-line summary |
 | `--sort FIELD` | Sort by: `lines` (default), `files`, `code`, `name` |
 | `--top N` | Show only top N languages |
 | `-e, --ext` | Filter by extension (comma-separated) |
@@ -101,6 +102,8 @@ python3 tests/test_cli.py zig-out/bin/lc4
 
 On Windows, use `python tests/test_cli.py zig-out/bin/lc4.exe`.
 
-Repeat the build and unit tests with `-Doptimize=ReleaseSafe` and `-Doptimize=ReleaseFast`, then run the CLI suite against each resulting executable. The reliability changes have been tested locally on Linux in all three modes. Automated Linux/Windows/macOS regression CI and a release test gate are prepared separately but are **not installed by this change**; the existing release workflow still builds artifacts without running this test suite.
+Repeat the build and unit tests with `-Doptimize=ReleaseSafe` and `-Doptimize=ReleaseFast`, then run the CLI suite against each resulting executable. [CI](.github/workflows/ci.yml) runs formatting, unit tests and CLI regression tests natively on Linux, Windows and macOS in all three modes. [Release builds](.github/workflows/release.yml) depend on the same reusable test matrix. The repository pins LF line endings through `.gitattributes` so Windows checkout does not change formatter input.
+
+The reliability revision `152c4cd` passed all nine CI jobs on 2026-09-06. The suite contains 30 unit tests and 30 CLI test cases. Platform-dependent permission and symlink tests explicitly skip when the host cannot enforce or create the required condition; a green job does not imply every conditional test ran on every platform.
 
 The CLI suite covers explicit roots, nested ignores, mode parity, ownership-sensitive options, binary inclusion, physical-line invariants, unknown/empty files, top-N, Unicode paths, symlink cycles (where available), hundreds of files, and a file larger than 100 MiB.
