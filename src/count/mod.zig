@@ -3,6 +3,7 @@ const lang = @import("../lang/mod.zig");
 const lines_mod = @import("lines.zig");
 const binary = @import("binary.zig");
 const FileEntry = @import("../scan/mod.zig").FileEntry;
+const SortBy = @import("../config.zig").SortBy;
 
 pub const FileResult = struct {
     path: []const u8,
@@ -16,270 +17,201 @@ pub const AggregateResult = struct {
     total: lang.LanguageStat,
 };
 
-const batch_size = 64;
+const max_count_jobs = 8;
+const small_file_threshold = 64 * 1024;
 
-pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, extensions_only: bool) ![]FileResult {
-    var results = try allocator.alloc(FileResult, entries.len);
-    for (entries, 0..) |entry, i| {
-        results[i] = .{ .path = entry.path };
-    }
+pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, include_binaries: bool) ![]FileResult {
+    const results = try allocator.alloc(FileResult, entries.len);
+    errdefer allocator.free(results);
+    for (entries, 0..) |entry, i| results[i] = .{ .path = entry.path };
 
+    var failed = std.atomic.Value(bool).init(false);
     var group: std.Io.Group = .init;
-    var i: usize = 0;
-    while (i < entries.len) : (i += batch_size) {
-        const end = @min(i + batch_size, entries.len);
-        try group.concurrent(io, countBatch, .{ io, entries[i..end], results[i..end], extensions_only });
-    }
-    try group.await(io);
+    errdefer group.cancel(io);
 
+    const job_count = @min(entries.len, max_count_jobs);
+    if (job_count != 0) {
+        const entries_per_job = entries.len / job_count;
+        const jobs_with_extra_entry = entries.len % job_count;
+        var start: usize = 0;
+        for (0..job_count) |job_index| {
+            const job_len = entries_per_job + @intFromBool(job_index < jobs_with_extra_entry);
+            const end = start + job_len;
+            try group.concurrent(io, countBatch, .{ allocator, io, entries[start..end], results[start..end], include_binaries, &failed });
+            start = end;
+        }
+    }
+
+    try group.await(io);
+    if (failed.load(.acquire)) return error.CountFailed;
     return results;
 }
 
-fn countBatch(io: std.Io, entries: []const FileEntry, results: []FileResult, extensions_only: bool) std.Io.Cancelable!void {
-    for (entries, 0..) |entry, j| {
-        countSingle(io, entry.path, &results[j], extensions_only);
+fn countBatch(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, results: []FileResult, include_binaries: bool, failed: *std.atomic.Value(bool)) std.Io.Cancelable!void {
+    for (entries, 0..) |entry, i| {
+        countSingle(allocator, io, entry.path, &results[i], include_binaries) catch |err| switch (err) {
+            error.Canceled => return error.Canceled,
+            else => {
+                failed.store(true, .release);
+                var buffer: [1024]u8 = undefined;
+                const message = std.fmt.bufPrint(&buffer, "Failed to count '{s}': {}\n", .{ entry.path, err }) catch
+                    "Failed to count file (path too long to display)\n";
+                std.Io.File.stderr().writeStreamingAll(io, message) catch {};
+                continue;
+            },
+        };
     }
 }
 
-const small_file_threshold = 64 * 1024;
-
-fn countSingle(io: std.Io, path: []const u8, result: *FileResult, extensions_only: bool) void {
-    const cwd = std.Io.Dir.cwd();
-    const file = cwd.openFile(io, path, .{}) catch return;
+fn countSingle(allocator: std.mem.Allocator, io: std.Io, path: []const u8, result: *FileResult, include_binaries: bool) !void {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
 
-    const file_stats = file.stat(io) catch return;
-    const size: usize = @intCast(file_stats.size);
-    if (size == 0 or size > 100 * 1024 * 1024) return;
-
+    const file_stats = try file.stat(io);
+    const size = std.math.cast(usize, file_stats.size) orelse return error.FileTooBig;
     const language = lang.detect(path);
     result.lang_ptr = language;
+    if (size == 0) return;
 
     if (size < small_file_threshold) {
-        var buf: [small_file_threshold]u8 = undefined;
-        const n = file.readPositionalAll(io, &buf, 0) catch return;
-        if (n < size) return;
-        const slice = buf[0..size];
-        if (!extensions_only) {
-            result.is_binary = binary.isBinary(slice);
-            if (result.is_binary) return;
-        }
-        result.line_count = lines_mod.countLines(slice, language);
+        var buffer: [small_file_threshold]u8 = undefined;
+        const read = try file.readPositionalAll(io, &buffer, 0);
+        if (read != size) return error.UnexpectedEndOfFile;
+        const content = buffer[0..size];
+        result.is_binary = !include_binaries and binary.isBinary(content);
+        if (!result.is_binary) result.line_count = try lines_mod.countLines(allocator, content, language);
     } else {
-        var mm = file.createMemoryMap(io, .{
+        var memory_map = try file.createMemoryMap(io, .{
             .len = size,
             .protection = .{ .read = true },
-        }) catch return;
-        defer mm.destroy(io);
-        if (!extensions_only) {
-            result.is_binary = binary.isBinary(mm.memory);
-            if (result.is_binary) return;
-        }
-        result.line_count = lines_mod.countLines(mm.memory, language);
+        });
+        defer memory_map.destroy(io);
+        result.is_binary = !include_binaries and binary.isBinary(memory_map.memory);
+        if (!result.is_binary) result.line_count = try lines_mod.countLines(allocator, memory_map.memory, language);
     }
 }
 
-pub fn countFileMmap(io: std.Io, path: []const u8, counters: *AtomicCounters) void {
-    const cwd = std.Io.Dir.cwd();
-    const file = cwd.openFile(io, path, .{}) catch return;
-    defer file.close(io);
-
-    const file_stats = file.stat(io) catch return;
-    const size: usize = @intCast(file_stats.size);
-    if (size == 0 or size > 100 * 1024 * 1024) return;
-
-    const language = lang.detect(path);
-
-    if (size < small_file_threshold) {
-        var buf: [small_file_threshold]u8 = undefined;
-        const n = file.readPositionalAll(io, &buf, 0) catch return;
-        if (n < size) return;
-        const slice = buf[0..size];
-        const is_bin = binary.isBinary(slice);
-        counters.countFile(slice, language, is_bin);
-    } else {
-        var mm = file.createMemoryMap(io, .{
-            .len = size,
-            .protection = .{ .read = true },
-        }) catch return;
-        defer mm.destroy(io);
-        const is_bin = binary.isBinary(mm.memory);
-        counters.countFile(mm.memory, language, is_bin);
-    }
-}
-
-const AtomicLangCounters = struct {
-    files: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-    lines: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-    blanks: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-    comments: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-    code: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-    color: []const u8,
-};
-
-pub const AtomicCounters = struct {
-    map: std.StringHashMap(AtomicLangCounters),
-
-    pub fn init(allocator: std.mem.Allocator) AtomicCounters {
-        var map = std.StringHashMap(AtomicLangCounters).init(allocator);
-        for (&lang.table) |*entry| {
-            map.put(entry.lang.name, .{ .color = entry.lang.color }) catch {};
-        }
-        return .{ .map = map };
-    }
-
-    pub fn deinit(self: *AtomicCounters) void {
-        self.map.deinit();
-    }
-
-    pub fn countFile(self: *AtomicCounters, content: []const u8, language: *const lang.Language, is_binary_file: bool) void {
-        if (is_binary_file) return;
-        if (self.map.getPtr(language.name)) |entry| {
-            _ = entry.files.fetchAdd(1, .monotonic);
-            const lc = lines_mod.countLines(content, language);
-            _ = entry.lines.fetchAdd(lc.lines, .monotonic);
-            _ = entry.blanks.fetchAdd(lc.blanks, .monotonic);
-            _ = entry.comments.fetchAdd(lc.comments, .monotonic);
-            _ = entry.code.fetchAdd(lc.code, .monotonic);
-        }
-    }
-
-    pub fn aggregate(self: *AtomicCounters, allocator: std.mem.Allocator, sort_by: []const u8, top_n: ?u32) !AggregateResult {
-        var stats = std.ArrayList(lang.LanguageStat).empty;
-        var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
-
-        var it = self.map.iterator();
-        while (it.next()) |entry| {
-            const files = entry.value_ptr.files.load(.monotonic);
-            if (files == 0) continue;
-            try stats.append(allocator, .{
-                .name = entry.key_ptr.*,
-                .color = entry.value_ptr.color,
-                .files = files,
-                .lines = entry.value_ptr.lines.load(.monotonic),
-                .blanks = entry.value_ptr.blanks.load(.monotonic),
-                .comments = entry.value_ptr.comments.load(.monotonic),
-                .code = entry.value_ptr.code.load(.monotonic),
-            });
-            total.files += files;
-            total.lines += entry.value_ptr.lines.load(.monotonic);
-            total.blanks += entry.value_ptr.blanks.load(.monotonic);
-            total.comments += entry.value_ptr.comments.load(.monotonic);
-            total.code += entry.value_ptr.code.load(.monotonic);
-        }
-
-        const result = try stats.toOwnedSlice(allocator);
-        const len = topNOrSort(result, sort_by, top_n);
-        const trimmed = try allocator.alloc(lang.LanguageStat, len);
-        @memcpy(trimmed, result[0..len]);
-        allocator.free(result);
-
-        return .{ .stats = trimmed, .total = total };
-    }
-};
-
-fn topNOrSort(stats: []lang.LanguageStat, sort_by: []const u8, top_n: ?u32) usize {
-    const n = top_n orelse @as(usize, stats.len);
-    if (n >= stats.len) {
-        sortStats(stats, sort_by);
-        return stats.len;
-    }
-
-    for (0..n) |i| {
-        siftUp(stats, i, sort_by);
-    }
-
-    for (n..stats.len) |i| {
-        if (isGreater(stats[i], stats[0], sort_by)) {
-            stats[0] = stats[i];
-            siftDown(stats, 0, n, sort_by);
-        }
-    }
-
-    sortStats(stats[0..n], sort_by);
-    return n;
-}
-
-fn isGreater(a: lang.LanguageStat, b: lang.LanguageStat, sort_by: []const u8) bool {
-    if (std.mem.eql(u8, sort_by, "files")) return a.files > b.files;
-    if (std.mem.eql(u8, sort_by, "code")) return a.code > b.code;
-    if (std.mem.eql(u8, sort_by, "name")) return std.mem.lessThan(u8, a.name, b.name);
-    return a.lines > b.lines;
-}
-
-fn siftUp(stats: []lang.LanguageStat, start: usize, sort_by: []const u8) void {
-    var i = start;
-    while (i > 0) {
-        const parent = (i - 1) / 2;
-        if (!isGreater(stats[i], stats[parent], sort_by)) break;
-        std.mem.swap(lang.LanguageStat, &stats[i], &stats[parent]);
-        i = parent;
-    }
-}
-
-fn siftDown(stats: []lang.LanguageStat, root: usize, len: usize, sort_by: []const u8) void {
-    var r = root;
-    while (true) {
-        var smallest = r;
-        const left = 2 * r + 1;
-        const right = 2 * r + 2;
-        if (left < len and isGreater(stats[left], stats[smallest], sort_by)) smallest = left;
-        if (right < len and isGreater(stats[right], stats[smallest], sort_by)) smallest = right;
-        if (smallest == r) break;
-        std.mem.swap(lang.LanguageStat, &stats[r], &stats[smallest]);
-        r = smallest;
-    }
-}
-
-fn sortStats(stats: []lang.LanguageStat, sort_by: []const u8) void {
-    std.mem.sort(lang.LanguageStat, stats, sort_by, struct {
-        fn cmp(ctx: []const u8, a: lang.LanguageStat, b: lang.LanguageStat) bool {
-            if (std.mem.eql(u8, ctx, "files")) return a.files > b.files;
-            if (std.mem.eql(u8, ctx, "code")) return a.code > b.code;
-            if (std.mem.eql(u8, ctx, "name")) return std.mem.lessThan(u8, a.name, b.name);
-            return a.lines > b.lines;
-        }
-    }.cmp);
-}
-
-pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: []const u8, top_n: ?u32) !AggregateResult {
+pub fn aggregate(allocator: std.mem.Allocator, results: []const FileResult, sort_by: SortBy, top_n: ?u32) !AggregateResult {
     var map: std.StringHashMap(lang.LanguageStat) = .init(allocator);
     defer map.deinit();
     var total = lang.LanguageStat{ .name = "Total", .color = "\x1b[1m" };
 
-    for (results) |r| {
-        if (r.is_binary) continue;
-        const gop = try map.getOrPut(r.lang_ptr.name);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{
-                .name = r.lang_ptr.name,
-                .color = r.lang_ptr.color,
-            };
+    for (results) |result| {
+        if (result.is_binary) continue;
+        const entry = try map.getOrPut(result.lang_ptr.name);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .{ .name = result.lang_ptr.name, .color = result.lang_ptr.color };
         }
-        gop.value_ptr.*.files += 1;
-        gop.value_ptr.*.lines += r.line_count.lines;
-        gop.value_ptr.*.blanks += r.line_count.blanks;
-        gop.value_ptr.*.comments += r.line_count.comments;
-        gop.value_ptr.*.code += r.line_count.code;
+        entry.value_ptr.files += 1;
+        entry.value_ptr.lines += result.line_count.lines;
+        entry.value_ptr.blanks += result.line_count.blanks;
+        entry.value_ptr.comments += result.line_count.comments;
+        entry.value_ptr.code += result.line_count.code;
 
         total.files += 1;
-        total.lines += r.line_count.lines;
-        total.blanks += r.line_count.blanks;
-        total.comments += r.line_count.comments;
-        total.code += r.line_count.code;
+        total.lines += result.line_count.lines;
+        total.blanks += result.line_count.blanks;
+        total.comments += result.line_count.comments;
+        total.code += result.line_count.code;
     }
 
     var stats = try allocator.alloc(lang.LanguageStat, map.count());
+    defer allocator.free(stats);
+    var iterator = map.valueIterator();
     var i: usize = 0;
-    var it = map.valueIterator();
-    while (it.next()) |val| : (i += 1) {
-        stats[i] = val.*;
-    }
+    while (iterator.next()) |stat| : (i += 1) stats[i] = stat.*;
+    return finishAggregate(allocator, stats, total, sort_by, top_n);
+}
 
-    const len = topNOrSort(stats, sort_by, top_n);
-    const trimmed = try allocator.alloc(lang.LanguageStat, len);
-    @memcpy(trimmed, stats[0..len]);
-    allocator.free(stats);
-
+fn finishAggregate(allocator: std.mem.Allocator, stats: []lang.LanguageStat, total: lang.LanguageStat, sort_by: SortBy, top_n: ?u32) !AggregateResult {
+    sortStats(stats, sort_by);
+    const requested: usize = if (top_n) |n| @intCast(n) else stats.len;
+    const len = @min(requested, stats.len);
+    const trimmed = try allocator.dupe(lang.LanguageStat, stats[0..len]);
     return .{ .stats = trimmed, .total = total };
+}
+
+fn sortStats(stats: []lang.LanguageStat, sort_by: SortBy) void {
+    std.mem.sort(lang.LanguageStat, stats, sort_by, struct {
+        fn lessThan(context: SortBy, a: lang.LanguageStat, b: lang.LanguageStat) bool {
+            const numeric_order = switch (context) {
+                .files => std.math.order(a.files, b.files),
+                .code => std.math.order(a.code, b.code),
+                .name => return std.mem.lessThan(u8, a.name, b.name),
+                .lines => std.math.order(a.lines, b.lines),
+            };
+            return switch (numeric_order) {
+                .gt => true,
+                .lt => false,
+                .eq => std.mem.lessThan(u8, a.name, b.name),
+            };
+        }
+    }.lessThan);
+}
+
+test "top N sorts the full set before slicing and accepts zero" {
+    const allocator = std.testing.allocator;
+    var stats = [_]lang.LanguageStat{
+        .{ .name = "low", .color = "", .lines = 1 },
+        .{ .name = "high", .color = "", .lines = 100 },
+        .{ .name = "middle", .color = "", .lines = 50 },
+    };
+
+    const top = try finishAggregate(allocator, &stats, .{ .name = "Total", .color = "" }, .lines, 2);
+    defer allocator.free(top.stats);
+    try std.testing.expectEqual(@as(usize, 2), top.stats.len);
+    try std.testing.expectEqualStrings("high", top.stats[0].name);
+    try std.testing.expectEqualStrings("middle", top.stats[1].name);
+
+    const empty = try finishAggregate(allocator, &stats, .{ .name = "Total", .color = "" }, .lines, 0);
+    defer allocator.free(empty.stats);
+    try std.testing.expectEqual(@as(usize, 0), empty.stats.len);
+}
+
+test "numeric sorts use alphabetical names to break ties" {
+    const sort_fields = [_]SortBy{ .files, .lines, .code };
+    for (sort_fields) |sort_by| {
+        var stats = [_]lang.LanguageStat{
+            .{ .name = "Zulu", .color = "", .files = 1, .lines = 2, .code = 3 },
+            .{ .name = "Alpha", .color = "", .files = 1, .lines = 2, .code = 3 },
+            .{ .name = "Middle", .color = "" },
+        };
+
+        sortStats(&stats, sort_by);
+        try std.testing.expectEqualStrings("Alpha", stats[0].name);
+        try std.testing.expectEqualStrings("Zulu", stats[1].name);
+        try std.testing.expectEqualStrings("Middle", stats[2].name);
+    }
+}
+
+test "name sort is alphabetical" {
+    var stats = [_]lang.LanguageStat{
+        .{ .name = "Zulu", .color = "" },
+        .{ .name = "Alpha", .color = "" },
+        .{ .name = "Middle", .color = "" },
+    };
+
+    sortStats(&stats, .name);
+    try std.testing.expectEqualStrings("Alpha", stats[0].name);
+    try std.testing.expectEqualStrings("Middle", stats[1].name);
+    try std.testing.expectEqualStrings("Zulu", stats[2].name);
+}
+
+test "aggregate includes unknown and empty files while excluding binaries" {
+    const allocator = std.testing.allocator;
+    const zig_language = lang.detect("example.zig");
+    const results = [_]FileResult{
+        .{ .path = "empty.unknown", .lang_ptr = &lang.unknown },
+        .{ .path = "code.zig", .lang_ptr = zig_language, .line_count = .{ .lines = 3, .blanks = 1, .comments = 1, .code = 1 } },
+        .{ .path = "binary.zig", .lang_ptr = zig_language, .is_binary = true },
+    };
+
+    const aggregated = try aggregate(allocator, &results, .name, null);
+    defer allocator.free(aggregated.stats);
+    try std.testing.expectEqual(@as(u64, 2), aggregated.total.files);
+    try std.testing.expectEqual(@as(u64, 3), aggregated.total.lines);
+    try std.testing.expectEqual(@as(usize, 2), aggregated.stats.len);
+    try std.testing.expectEqualStrings("Unknown", aggregated.stats[0].name);
+    try std.testing.expectEqual(@as(u64, 1), aggregated.stats[0].files);
+    try std.testing.expectEqualStrings("Zig", aggregated.stats[1].name);
 }

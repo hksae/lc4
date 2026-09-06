@@ -1,0 +1,3 @@
+# Keep formatter input identical on Windows, Linux and macOS.
+# This overrides core.autocrlf=true while leaving binary files untouched.
+* text=auto eol=lf

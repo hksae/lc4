@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.optimize }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        optimize: [Debug, ReleaseSafe, ReleaseFast]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0-dev.1978+c961124d9
+          cache-key: ${{ matrix.optimize }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Formatting
+        run: zig fmt --check build.zig build.zig.zon src
+      - name: Unit tests
+        run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+      - name: Build
+        run: zig build -Doptimize=${{ matrix.optimize }}
+      - name: CLI regression tests (Unix)
+        if: runner.os != 'Windows'
+        run: python tests/test_cli.py zig-out/bin/lc4
+      - name: CLI regression tests (Windows)
+        if: runner.os == 'Windows'
+        run: python tests/test_cli.py zig-out/bin/lc4.exe
