@@ -2,9 +2,9 @@ Fast command-line line counter for your project. Written in Zig.
 
 ## Features
 
-- Counts lines, code, blanks, and comments across 70+ languages/formats
-- Parallel directory walking and file counting
-- Respects `.gitignore` by default
+- Counts physical lines, code, blanks, and comments using definitions for 70+ languages/formats
+- Bounded parallel file counting (up to eight jobs); iterative, non-symlink-following directory traversal
+- Reads root and nested `.gitignore` files without writing caches into the scanned tree
 - Colored table, JSON, and per-file output
 - Skips binary files by default
 - Windows: auto-enables UTF-8 + ANSI output
@@ -65,8 +65,42 @@ lc4 --top 5             # show only top 5 languages
 └────────────┴────────┴──────────┴──────────┴────────────┴──────────┘
 ```
 
+## Counting semantics and limits
+
+- Each physical line is counted exactly once: `lines = code + comments + blanks`. A final newline does not create an additional empty line; an empty file has zero lines but counts as one file.
+- A line containing code before or after a comment counts as code. Whitespace-only lines inside an open block comment count as comments.
+- Unknown extensions are reported as `Unknown`, including extensionless files. Normal, verbose and JSON modes use the same counting pipeline.
+- `--top N` limits displayed languages, not the grand total. `--top 0` displays no language rows but preserves the total. Equal numeric sort values are ordered by language name.
+- Binary detection checks for NUL bytes in the initial sample. `-b` disables that filter; it does not decode binary formats or UTF-16.
+- Language detection uses the longest declared suffix. Ambiguous extensions retain the first table definition; there is no content-based language detection.
+- Comment classification is lightweight, **not a full parser**. It handles ordinary single/double-quoted strings and C-style comments, including Rust's nested block comments. Language-specific multiline/raw strings, heredocs, embedded languages and ambiguous syntax may be classified approximately. Python triple-double-quoted regions follow the table's comment convention rather than AST-based docstring detection.
+- The former 100 MiB file cutoff is removed. Large files are memory-mapped; available address space limits the maximum size. Files should not be concurrently modified or truncated during a scan; lc4 does not take a filesystem snapshot.
+- File counting uses at most eight jobs. Directory traversal is deliberately sequential and iterative to avoid unbounded tasks and to make inherited ignore rules predictable. This is a correctness-first tradeoff, not a new performance claim.
+
+### Ignore rules
+
+Root and nested `.gitignore` files support relative scope, `/` anchoring, directory-only rules, `!` negation, `*`, `?`, component-boundary `**`, simple character classes/ranges, and escaped metacharacters. An excluded directory is not traversed, so a child cannot be re-included without also re-including its parent.
+
+This is not full Git integration: global excludes, `.git/info/exclude`, ignore rules above the selected root, and POSIX named character classes are not supported. Matching is byte-oriented and case-sensitive. A pattern is limited to 4096 bytes and each `.gitignore` to 10 MiB; exceeding those limits fails the scan rather than silently accepting partial results.
+
+By default lc4 also skips `.git`, `.svn`, `.hg`, `node_modules`, `__pycache__`, `.venv`, `venv`, `.idea`, `.vscode`, `.zig-cache`, `.zig-out`, `zig-out`, and `target`. `-a` disables both these exclusions and `.gitignore` processing. Symlink entries remain skipped, including with `-a`. Scanning never creates an ignore cache in the target tree.
+
+### Failures and exit codes
+
+Invalid options return exit code 2. Traversal or file I/O failures return a nonzero status instead of reporting a successful partial count. Diagnostics go to stderr; failed scans do not emit a successful JSON report. A successful empty scan returns valid JSON with zero totals.
+
 ## Test
+
+Using the pinned compiler and Python 3.9+:
 
 ```sh
 zig build test
+zig build
+python3 tests/test_cli.py zig-out/bin/lc4
 ```
+
+On Windows, use `python tests/test_cli.py zig-out/bin/lc4.exe`.
+
+Repeat the build and unit tests with `-Doptimize=ReleaseSafe` and `-Doptimize=ReleaseFast`, then run the CLI suite against each resulting executable. The reliability changes have been tested locally on Linux in all three modes. Automated Linux/Windows/macOS regression CI and a release test gate are prepared separately but are **not installed by this change**; the existing release workflow still builds artifacts without running this test suite.
+
+The CLI suite covers explicit roots, nested ignores, mode parity, ownership-sensitive options, binary inclusion, physical-line invariants, unknown/empty files, top-N, Unicode paths, symlink cycles (where available), hundreds of files, and a file larger than 100 MiB.

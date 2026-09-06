@@ -9,7 +9,7 @@ const verbose = @import("verbose.zig");
 pub fn show(allocator: std.mem.Allocator, io: std.Io, results: []const count.FileResult, agg: count.AggregateResult, config: Config) !void {
     const stdout = std.Io.File.stdout();
 
-    if (config.short_output) {
+    if (config.short_output and !config.json_output) {
         const buf = try renderShort(allocator, agg.total);
         defer allocator.free(buf);
         try stdout.writeStreamingAll(io, buf);

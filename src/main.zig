@@ -14,48 +14,25 @@ pub fn main(init: std.process.Init) !void {
 
     terminal.setup();
 
-    const config = try cli.parse(gpa, io, init.minimal.args);
+    var config = cli.parse(gpa, io, init.minimal.args) catch |err| {
+        if (err == error.InvalidArguments) std.process.exit(2);
+        return err;
+    };
+    defer config.deinit(gpa);
+
+    const entries = try scan.collectFiles(gpa, io, config);
     defer {
-        if (config.root_path) |p| gpa.free(p);
-        if (config.extensions) |exts| {
-            for (exts) |e| gpa.free(e);
-            gpa.free(exts);
-        }
+        for (entries) |entry| gpa.free(entry.path);
+        gpa.free(entries);
     }
 
-    if (config.verbose) {
-        const entries = try scan.collectFiles(gpa, io, config);
-        defer {
-            for (entries) |e| gpa.free(e.path);
-            gpa.free(entries);
-        }
+    const results = try count.countAll(gpa, io, entries, config.include_binaries);
+    defer gpa.free(results);
 
-        if (entries.len == 0) {
-            try emit(io, "\n  No files found.\n\n");
-            return;
-        }
+    const agg = try count.aggregate(gpa, results, config.sort_by, config.top_n);
+    defer gpa.free(agg.stats);
 
-        const results = try count.countAll(gpa, io, entries, config.extensions != null);
-        defer gpa.free(results);
-
-        const agg = try count.aggregate(gpa, results, config.sort_by, config.top_n);
-        defer gpa.free(agg.stats);
-
-        try display.show(gpa, io, results, agg, config);
-    } else {
-        var atomic = try scan.collectAndCountAtomic(gpa, io, config);
-        defer atomic.deinit();
-
-        if (atomic.map.count() == 0) {
-            try emit(io, "\n  No files found.\n\n");
-            return;
-        }
-
-        const agg = try atomic.aggregate(gpa, config.sort_by, config.top_n);
-        defer gpa.free(agg.stats);
-
-        try display.show(gpa, io, &.{}, agg, config);
-    }
+    try display.show(gpa, io, results, agg, config);
 }
 
 pub fn emit(io: std.Io, data: []const u8) !void {

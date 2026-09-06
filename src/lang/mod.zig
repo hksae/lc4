@@ -1,10 +1,13 @@
-﻿const std = @import("std");
+const std = @import("std");
 
 pub const Language = struct {
     name: []const u8,
     line_comment: ?[]const u8 = null,
     block_open: ?[]const u8 = null,
     block_close: ?[]const u8 = null,
+    block_nesting: bool = false,
+    /// Single-byte quote delimiters recognized by the lightweight line scanner.
+    quotes: []const u8 = "\"'",
     color: []const u8,
 };
 
@@ -20,6 +23,7 @@ pub const LanguageStat = struct {
 
 const Entry = struct {
     ext: []const u8,
+    filename: ?[]const u8 = null,
     lang: Language,
 };
 
@@ -87,11 +91,11 @@ pub const table = [_]Entry{
 
     // в”Ђв”Ђ Go в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     .{ .ext = ".go", .lang = .{ .name = "Go", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;036m" } },
-    .{ .ext = ".go.sum", .lang = .{ .name = "Go", .color = "\x1b[38;5;036m" } },
+    .{ .ext = ".go.sum", .filename = "go.sum", .lang = .{ .name = "Go", .color = "\x1b[38;5;036m" } },
 
     // в”Ђв”Ђ Rust в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    .{ .ext = ".rs", .lang = .{ .name = "Rust", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;216m" } },
-    .{ .ext = ".rs.in", .lang = .{ .name = "Rust", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;216m" } },
+    .{ .ext = ".rs", .lang = .{ .name = "Rust", .line_comment = "//", .block_open = "/*", .block_close = "*/", .block_nesting = true, .color = "\x1b[38;5;216m" } },
+    .{ .ext = ".rs.in", .lang = .{ .name = "Rust", .line_comment = "//", .block_open = "/*", .block_close = "*/", .block_nesting = true, .color = "\x1b[38;5;216m" } },
 
     // в”Ђв”Ђ Ruby в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     .{ .ext = ".rb", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
@@ -100,11 +104,11 @@ pub const table = [_]Entry{
     .{ .ext = ".rbw", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
     .{ .ext = ".rbx", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
     .{ .ext = ".erb", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
-    .{ .ext = ".gemfile", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
+    .{ .ext = ".gemfile", .filename = "Gemfile", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
     .{ .ext = ".builder", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
     .{ .ext = ".ru", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
     .{ .ext = ".podspec", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
-    .{ .ext = ".Vagrantfile", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
+    .{ .ext = ".Vagrantfile", .filename = "Vagrantfile", .lang = .{ .name = "Ruby", .line_comment = "#", .block_open = "=begin", .block_close = "=end", .color = "\x1b[38;5;196m" } },
 
     // в”Ђв”Ђ PHP в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     .{ .ext = ".php", .lang = .{ .name = "PHP", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;135m" } },
@@ -137,7 +141,7 @@ pub const table = [_]Entry{
     .{ .ext = ".perl", .lang = .{ .name = "Perl", .line_comment = "#", .color = "\x1b[38;5;045m" } },
     .{ .ext = ".t", .lang = .{ .name = "Perl", .line_comment = "#", .color = "\x1b[38;5;045m" } },
     .{ .ext = ".psgi", .lang = .{ .name = "Perl", .line_comment = "#", .color = "\x1b[38;5;045m" } },
-    .{ .ext = ".cpanfile", .lang = .{ .name = "Perl", .line_comment = "#", .color = "\x1b[38;5;045m" } },
+    .{ .ext = ".cpanfile", .filename = "cpanfile", .lang = .{ .name = "Perl", .line_comment = "#", .color = "\x1b[38;5;045m" } },
 
     // в”Ђв”Ђ R в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     .{ .ext = ".r", .lang = .{ .name = "R", .line_comment = "#", .color = "\x1b[38;5;249m" } },
@@ -627,7 +631,7 @@ pub const table = [_]Entry{
     .{ .ext = ".pdf", .lang = .{ .name = "PDF", .color = "\x1b[38;5;248m" } },
 
     // в”Ђв”Ђ APL / J в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    .{ .ext = ".apl", .lang = .{ .name = "APL", .line_comment = "вЌќ", .color = "\x1b[38;5;213m" } },
+    .{ .ext = ".apl", .lang = .{ .name = "APL", .line_comment = "⍝", .color = "\x1b[38;5;213m" } },
     .{ .ext = ".ijs", .lang = .{ .name = "J", .line_comment = "#", .color = "\x1b[38;5;213m" } },
     .{ .ext = ".k", .lang = .{ .name = "K", .line_comment = "/", .color = "\x1b[38;5;213m" } },
 
@@ -736,20 +740,48 @@ pub const table = [_]Entry{
     // в”Ђв”Ђ Z++ (already added) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 };
 
-var map: std.StringHashMap(*const Language) = undefined;
-var map_init: bool = false;
+pub fn detect(filename: []const u8) *const Language {
+    const basename = std.fs.path.basename(filename);
+    var best: ?*const Language = null;
+    var best_len: usize = 0;
 
-fn ensureInit() void {
-    if (map_init) return;
-    map = std.StringHashMap(*const Language).init(std.heap.page_allocator);
+    // The declaration table is immutable. Longest suffix wins for multipart
+    // extensions; equal-length collisions retain declaration order rather than
+    // inventing content-based language semantics.
     for (&table) |*entry| {
-        map.put(entry.ext, &entry.lang) catch {};
+        const exact_declared_filename = if (entry.filename) |name|
+            std.ascii.eqlIgnoreCase(basename, name)
+        else
+            false;
+        if ((std.mem.endsWith(u8, basename, entry.ext) or exact_declared_filename) and
+            entry.ext.len > best_len)
+        {
+            best = &entry.lang;
+            best_len = entry.ext.len;
+        }
     }
-    map_init = true;
+
+    return best orelse &unknown;
 }
 
-pub fn detect(filename: []const u8) *const Language {
-    ensureInit();
-    const ext = std.fs.path.extension(filename);
-    return map.get(ext) orelse &unknown;
+test "detect uses immutable longest suffix lookup" {
+    try std.testing.expectEqualStrings("Rust", detect("generated/module.rs.in").name);
+    try std.testing.expectEqualStrings("Kotlin", detect("app/build.gradle.kts").name);
+    try std.testing.expectEqualStrings("C++", detect("src/main.cpp").name);
+    try std.testing.expectEqualStrings("Unknown", detect("README").name);
+    for ([_][]const u8{ "json", "yaml", "toml", "html", "swift" }) |name| {
+        try std.testing.expectEqualStrings("Unknown", detect(name).name);
+    }
+}
+
+test "detect supports declared filenames without runtime mutation" {
+    try std.testing.expectEqualStrings("Ruby", detect("config/Vagrantfile").name);
+    try std.testing.expectEqualStrings("Ruby", detect("Gemfile").name);
+    try std.testing.expectEqualStrings("Bash", detect(".bashrc").name);
+}
+
+test "language metadata distinguishes Rust nesting and APL comments" {
+    try std.testing.expect(detect("lib.rs").block_nesting);
+    try std.testing.expect(!detect("main.c").block_nesting);
+    try std.testing.expectEqualStrings("⍝", detect("code.apl").line_comment.?);
 }

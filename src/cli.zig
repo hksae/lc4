@@ -4,6 +4,8 @@ const build_options = @import("build_options");
 
 pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.Args) !Config {
     var config = Config{};
+    errdefer config.deinit(allocator);
+
     var args = try args_value.iterateAllocator(allocator);
     defer args.deinit();
     _ = args.next();
@@ -24,9 +26,9 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
         } else if (std.mem.eql(u8, arg, "-n") or std.mem.eql(u8, arg, "--no-color")) {
             config.no_color = true;
         } else if (std.mem.eql(u8, arg, "--sort")) {
-            if (args.next()) |s| {
-                config.sort_by = s;
-            }
+            const value = args.next() orelse return invalidValue(allocator, io, "--sort", "missing value");
+            config.sort_by = std.meta.stringToEnum(@import("config.zig").SortBy, value) orelse
+                return invalidValue(allocator, io, "--sort", value);
         } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--verbose")) {
             config.verbose = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
@@ -34,41 +36,66 @@ pub fn parse(allocator: std.mem.Allocator, io: std.Io, args_value: std.process.A
         } else if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--short")) {
             config.short_output = true;
         } else if (std.mem.eql(u8, arg, "--top")) {
-            if (args.next()) |n_str| {
-                config.top_n = std.fmt.parseInt(u32, n_str, 10) catch null;
-            }
+            const value = args.next() orelse return invalidValue(allocator, io, "--top", "missing value");
+            config.top_n = std.fmt.parseInt(u32, value, 10) catch
+                return invalidValue(allocator, io, "--top", value);
         } else if (std.mem.eql(u8, arg, "-e") or std.mem.eql(u8, arg, "--ext")) {
-            if (args.next()) |ext_str| {
-                var exts: std.ArrayList([]const u8) = .empty;
-                errdefer exts.deinit(allocator);
-                var it = std.mem.splitScalar(u8, ext_str, ',');
-                while (it.next()) |ext| {
-                    const trimmed = std.mem.trim(u8, ext, " \t");
-                    if (trimmed.len > 0) {
-                        if (trimmed[0] != '.') {
-                            const with_dot = try std.fmt.allocPrint(allocator, ".{s}", .{trimmed});
-                            try exts.append(allocator, with_dot);
-                        } else {
-                            try exts.append(allocator, trimmed);
-                        }
-                    }
-                }
-                config.extensions = try exts.toOwnedSlice(allocator);
+            const value = args.next() orelse return invalidValue(allocator, io, arg, "missing value");
+            if (value.len > 0 and value[0] == '-') return invalidValue(allocator, io, arg, "missing value");
+            const extensions = try parseExtensions(allocator, value);
+            if (extensions.len == 0) {
+                allocator.free(extensions);
+                return invalidValue(allocator, io, arg, value);
             }
-        } else if (arg[0] != '-') {
-            config.root_path = try allocator.dupe(u8, arg);
+            freeExtensions(allocator, config.extensions);
+            config.extensions = extensions;
+        } else if (arg.len > 0 and arg[0] != '-') {
+            const path = try allocator.dupe(u8, arg);
+            if (config.root_path) |old_path| allocator.free(old_path);
+            config.root_path = path;
         } else {
-            const err_buf = try std.fmt.allocPrint(allocator, "Unknown option: {s}\n", .{arg});
-            defer allocator.free(err_buf);
-            try std.Io.File.stderr().writeStreamingAll(io, err_buf);
-            const help_buf = try buildHelp(allocator);
-            defer allocator.free(help_buf);
-            try std.Io.File.stderr().writeStreamingAll(io, help_buf);
-            std.process.exit(1);
+            return invalidValue(allocator, io, "option", arg);
         }
     }
 
     return config;
+}
+
+fn parseExtensions(allocator: std.mem.Allocator, value: []const u8) ![]const []const u8 {
+    var extensions: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (extensions.items) |extension| allocator.free(extension);
+        extensions.deinit(allocator);
+    }
+
+    var it = std.mem.splitScalar(u8, value, ',');
+    while (it.next()) |extension| {
+        const trimmed = std.mem.trim(u8, extension, " \t");
+        if (trimmed.len == 0) continue;
+        const owned = if (trimmed[0] == '.')
+            try allocator.dupe(u8, trimmed)
+        else
+            try std.fmt.allocPrint(allocator, ".{s}", .{trimmed});
+        extensions.append(allocator, owned) catch |err| {
+            allocator.free(owned);
+            return err;
+        };
+    }
+    return extensions.toOwnedSlice(allocator);
+}
+
+fn freeExtensions(allocator: std.mem.Allocator, maybe_extensions: ?[]const []const u8) void {
+    if (maybe_extensions) |extensions| {
+        for (extensions) |extension| allocator.free(extension);
+        allocator.free(extensions);
+    }
+}
+
+fn invalidValue(allocator: std.mem.Allocator, io: std.Io, option: []const u8, value: []const u8) error{InvalidArguments} {
+    const message = std.fmt.allocPrint(allocator, "Invalid {s}: {s}\n", .{ option, value }) catch return error.InvalidArguments;
+    defer allocator.free(message);
+    std.Io.File.stderr().writeStreamingAll(io, message) catch {};
+    return error.InvalidArguments;
 }
 
 fn buildHelp(allocator: std.mem.Allocator) ![]u8 {
