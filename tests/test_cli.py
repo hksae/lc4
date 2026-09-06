@@ -44,6 +44,12 @@ class CliTests(unittest.TestCase):
         self.assertEqual(normal, verbose)
         return normal
 
+    def assert_path_parity(self, path):
+        normal = self.stats(path=path)
+        verbose = self.stats("-v", path=path)
+        self.assertEqual(normal, verbose)
+        return normal
+
     def test_explicit_root_absolute_relative_and_cwd(self):
         self.file("root.zig")
         self.file("sub/deep/nested.rs")
@@ -133,6 +139,93 @@ class CliTests(unittest.TestCase):
     def test_quoted_comment_delimiters(self):
         self.file("a.c", 'const char *s = "/*";\nint x;\n')
         self.assertEqual(self.assert_parity()["total"]["comments"], 0)
+
+    def test_python_docstring_and_assigned_string_are_both_code(self):
+        self.file("strings.py", '"""module doc\n\nsecond doc line\n"""\nx = """runtime\nmultiline string\n"""\nprint(x)\n')
+        total = self.assert_parity()["total"]
+        self.assertEqual((total["lines"], total["code"], total["comments"], total["blanks"]), (8, 8, 0, 0))
+
+    def test_multiline_strings_in_memory_mapped_files(self):
+        cases = [
+            ("large.py", 'value = """start\n' + ('# text ' * 12000) + '\nend"""\n# real\n'),
+            ("large.js", 'const value = `start\n' + ('// text ' * 12000) + '\nend`;\n// real\n'),
+        ]
+        for name, source in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                self.assertEqual((total["lines"], total["code"], total["comments"]), (4, 3, 1))
+
+    def test_python_triple_quoted_strings_and_prefixes(self):
+        cases = [
+            ("single.py", "'''doc\n\n# string text\n'''\n# real", (5, 4, 1, 0)),
+            ("raw.py", 'r"""raw\n# string text\n"""\n# real\n', (4, 3, 1, 0)),
+            ("bytes.py", "b'''bytes\n\nend'''\n# real\n", (4, 3, 1, 0)),
+            ("format.py", 'f"""value {name}\n# string text\n"""\n# real\n', (4, 3, 1, 0)),
+        ]
+        for name, source, expected in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                actual = (total["lines"], total["code"], total["comments"], total["blanks"])
+                self.assertEqual(actual, expected)
+
+    def test_python_string_closing_and_comment_boundaries(self):
+        cases = [
+            ("escaped.py", '"""first\n\\""" still string\nlast"""\n# real\n', (4, 3, 1)),
+            ("mixed.py", '"""first\nlast"""  # trailing real comment\n# real\n', (3, 2, 1)),
+            ("comment-delimiter.py", '# """ text only\n# still a comment\nvalue = 1', (3, 1, 2)),
+        ]
+        for name, source, expected in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                actual = (total["lines"], total["code"], total["comments"])
+                self.assertEqual(actual, expected)
+
+    def test_python_quoted_backslash_line_continuations(self):
+        cases = [
+            ("lf.py", b'"continued\\\n# string text"\n# real'),
+            ("crlf.py", b"'continued\\\r\n# string text'\r\n# real"),
+        ]
+        for name, source in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                actual = (total["lines"], total["code"], total["comments"], total["blanks"])
+                self.assertEqual(actual, (3, 2, 1, 0))
+
+    def test_javascript_template_raw_text_is_code(self):
+        cases = [
+            ("raw.js", "const value = `first\n// raw text\n/* raw text */\n\nlast`;\n// real", (6, 5, 1, 0)),
+            ("escapes.ts", "const value = `first\n\\` // raw text\n\\${notInterpolation}\nlast`;\n// real\n", (5, 4, 1, 0)),
+        ]
+        for name, source, expected in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                actual = (total["lines"], total["code"], total["comments"], total["blanks"])
+                self.assertEqual(actual, expected)
+
+    def test_javascript_template_interpolation_state(self):
+        cases = [
+            ("comments.js", "const value = `raw\n${value +\n// interpolation comment\nother}\nraw`;\n// real\n", (6, 4, 2)),
+            ("nested.ts", "const value = `raw\n${{outer: {inner: `nested ${item}`}}}\nraw`;\n// real", (4, 3, 1)),
+        ]
+        for name, source, expected in cases:
+            with self.subTest(name=name):
+                total = self.assert_path_parity(self.file(f"case-{name}/{name}", source).parent)["total"]
+                actual = (total["lines"], total["code"], total["comments"])
+                self.assertEqual(actual, expected)
+
+    def test_multiline_state_is_isolated_between_files(self):
+        cases = [
+            ("python", "py", '"""unterminated\n# string text', "# real\nvalue = 1"),
+            ("javascript", "js", "const value = `unterminated\n// raw text", "// real\nconst next = 1"),
+        ]
+        for directory, extension, first, second in cases:
+            with self.subTest(language=directory):
+                state = self.root / directory
+                self.file(f"{directory}/a.{extension}", first)
+                self.file(f"{directory}/b.{extension}", second)
+                total = self.assert_path_parity(state)["total"]
+                actual = (total["files"], total["lines"], total["code"], total["comments"], total["blanks"])
+                self.assertEqual(actual, (2, 4, 3, 1, 0))
 
     def test_extension_words_without_dot_are_unknown(self):
         for name in ["json", "yaml", "toml", "html", "swift"]:

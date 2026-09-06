@@ -37,7 +37,7 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
         for (0..job_count) |job_index| {
             const job_len = entries_per_job + @intFromBool(job_index < jobs_with_extra_entry);
             const end = start + job_len;
-            try group.concurrent(io, countBatch, .{ io, entries[start..end], results[start..end], include_binaries, &failed });
+            try group.concurrent(io, countBatch, .{ allocator, io, entries[start..end], results[start..end], include_binaries, &failed });
             start = end;
         }
     }
@@ -47,9 +47,9 @@ pub fn countAll(allocator: std.mem.Allocator, io: std.Io, entries: []const FileE
     return results;
 }
 
-fn countBatch(io: std.Io, entries: []const FileEntry, results: []FileResult, include_binaries: bool, failed: *std.atomic.Value(bool)) std.Io.Cancelable!void {
+fn countBatch(allocator: std.mem.Allocator, io: std.Io, entries: []const FileEntry, results: []FileResult, include_binaries: bool, failed: *std.atomic.Value(bool)) std.Io.Cancelable!void {
     for (entries, 0..) |entry, i| {
-        countSingle(io, entry.path, &results[i], include_binaries) catch |err| switch (err) {
+        countSingle(allocator, io, entry.path, &results[i], include_binaries) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
             else => {
                 failed.store(true, .release);
@@ -63,7 +63,7 @@ fn countBatch(io: std.Io, entries: []const FileEntry, results: []FileResult, inc
     }
 }
 
-fn countSingle(io: std.Io, path: []const u8, result: *FileResult, include_binaries: bool) !void {
+fn countSingle(allocator: std.mem.Allocator, io: std.Io, path: []const u8, result: *FileResult, include_binaries: bool) !void {
     const file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
 
@@ -79,7 +79,7 @@ fn countSingle(io: std.Io, path: []const u8, result: *FileResult, include_binari
         if (read != size) return error.UnexpectedEndOfFile;
         const content = buffer[0..size];
         result.is_binary = !include_binaries and binary.isBinary(content);
-        if (!result.is_binary) result.line_count = lines_mod.countLines(content, language);
+        if (!result.is_binary) result.line_count = try lines_mod.countLines(allocator, content, language);
     } else {
         var memory_map = try file.createMemoryMap(io, .{
             .len = size,
@@ -87,7 +87,7 @@ fn countSingle(io: std.Io, path: []const u8, result: *FileResult, include_binari
         });
         defer memory_map.destroy(io);
         result.is_binary = !include_binaries and binary.isBinary(memory_map.memory);
-        if (!result.is_binary) result.line_count = lines_mod.countLines(memory_map.memory, language);
+        if (!result.is_binary) result.line_count = try lines_mod.countLines(allocator, memory_map.memory, language);
     }
 }
 

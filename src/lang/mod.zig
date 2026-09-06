@@ -1,5 +1,11 @@
 const std = @import("std");
 
+pub const StringSyntax = enum {
+    none,
+    python,
+    javascript,
+};
+
 pub const Language = struct {
     name: []const u8,
     line_comment: ?[]const u8 = null,
@@ -8,6 +14,9 @@ pub const Language = struct {
     block_nesting: bool = false,
     /// Single-byte quote delimiters recognized by the lightweight line scanner.
     quotes: []const u8 = "\"'",
+    /// Focused persistent-string grammar. Deliberately enabled only where the
+    /// scanner implements that language's multiline lexical rules.
+    string_syntax: StringSyntax = .none,
     color: []const u8,
 };
 
@@ -62,32 +71,32 @@ pub const table = [_]Entry{
     .{ .ext = ".scs", .lang = .{ .name = "Scala", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;203m" } },
 
     // в”Ђв”Ђ JavaScript / TypeScript в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    .{ .ext = ".js", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;220m" } },
-    .{ .ext = ".mjs", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;220m" } },
-    .{ .ext = ".cjs", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;220m" } },
-    .{ .ext = ".jsx", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;220m" } },
-    .{ .ext = ".ts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;033m" } },
-    .{ .ext = ".mts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;033m" } },
-    .{ .ext = ".cts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;033m" } },
-    .{ .ext = ".tsx", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;033m" } },
+    .{ .ext = ".js", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;220m" } },
+    .{ .ext = ".mjs", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;220m" } },
+    .{ .ext = ".cjs", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;220m" } },
+    .{ .ext = ".jsx", .lang = .{ .name = "JavaScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;220m" } },
+    .{ .ext = ".ts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;033m" } },
+    .{ .ext = ".mts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;033m" } },
+    .{ .ext = ".cts", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;033m" } },
+    .{ .ext = ".tsx", .lang = .{ .name = "TypeScript", .line_comment = "//", .block_open = "/*", .block_close = "*/", .string_syntax = .javascript, .color = "\x1b[38;5;033m" } },
 
     // в”Ђв”Ђ Python в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    .{ .ext = ".py", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pyw", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pyi", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pyt", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".wsgi", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".uwsgi", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".ipy", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pyde", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pyp", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".cpy", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".gyp", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".gypi", .lang = .{ .name = "Python", .line_comment = "#", .block_open = "\"\"\"", .block_close = "\"\"\"", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pylintrc", .lang = .{ .name = "Python", .line_comment = "#", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pypirc", .lang = .{ .name = "Python", .line_comment = "#", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pythonrc", .lang = .{ .name = "Python", .line_comment = "#", .color = "\x1b[38;5;082m" } },
-    .{ .ext = ".pythonstartup", .lang = .{ .name = "Python", .line_comment = "#", .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".py", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pyw", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pyi", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pyt", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".wsgi", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".uwsgi", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".ipy", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pyde", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pyp", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".cpy", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".gyp", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".gypi", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pylintrc", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pypirc", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pythonrc", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
+    .{ .ext = ".pythonstartup", .lang = .{ .name = "Python", .line_comment = "#", .string_syntax = .python, .color = "\x1b[38;5;082m" } },
 
     // в”Ђв”Ђ Go в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     .{ .ext = ".go", .lang = .{ .name = "Go", .line_comment = "//", .block_open = "/*", .block_close = "*/", .color = "\x1b[38;5;036m" } },
@@ -784,4 +793,19 @@ test "language metadata distinguishes Rust nesting and APL comments" {
     try std.testing.expect(detect("lib.rs").block_nesting);
     try std.testing.expect(!detect("main.c").block_nesting);
     try std.testing.expectEqualStrings("⍝", detect("code.apl").line_comment.?);
+}
+
+test "persistent string syntax is focused on Python and JS TS families" {
+    for ([_][]const u8{ "a.py", "a.pyw", "a.pyi", "a.pythonrc" }) |name| {
+        const python = detect(name);
+        try std.testing.expectEqual(StringSyntax.python, python.string_syntax);
+        try std.testing.expect(python.block_open == null);
+        try std.testing.expect(python.block_close == null);
+    }
+    for ([_][]const u8{ "a.js", "a.mjs", "a.cjs", "a.jsx", "a.ts", "a.mts", "a.cts", "a.tsx" }) |name| {
+        try std.testing.expectEqual(StringSyntax.javascript, detect(name).string_syntax);
+    }
+    for ([_][]const u8{ "a.c", "a.rs", "a.json", "a.vue" }) |name| {
+        try std.testing.expectEqual(StringSyntax.none, detect(name).string_syntax);
+    }
 }
